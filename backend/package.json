@@ -1,0 +1,45 @@
+{
+  "name": "fortechz-pos-system",
+  "productName": "ForTechZ POS System",
+  "version": "4.0.0",
+  "description": "POS System developed by ForTechZ",
+  "author": "ForTechZ Pvt Limited",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build-exe": "electron-builder"
+  },
+  "build": {
+    "appId": "com.fortechz.pos",
+    "productName": "ForTechZ POS",
+    "asar": false,
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "**/*",
+      "ui/**/*",
+      "!release"
+    ],
+    "win": {
+      "icon": "icon.ico",
+      "target": "nsis"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "artifactName": "ForTechZ POS Setup ${version}.exe"
+    }
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "escpos": "^3.0.0-alpha.11",
+    "escpos-usb": "^3.0.0-alpha.1",
+    "express": "^4.19.2",
+    "pg": "^8.12.0"
+  },
+  "devDependencies": {
+    "electron": "^31.0.0",
+    "electron-builder": "^24.13.3"
+  }
+}
