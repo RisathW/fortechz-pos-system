@@ -6,13 +6,14 @@ import StockManagement from './StockManagement';
 import StockHistory from './StockHistory';
 import SalesHistory from './SalesHistory';
 import React, { useState, useEffect } from 'react';
-import { ShoppingCart, LayoutDashboard, Truck, LogOut, PieChart, Users, Package, ArrowLeftRight, FileText, Receipt, Settings, CalendarClock, Moon, Sun } from 'lucide-react';
+import { ShoppingCart, LayoutDashboard, Truck, LogOut, PieChart, Users, Package, ArrowLeftRight, FileText, Receipt, Settings, CalendarClock, Moon, Sun, RotateCcw } from 'lucide-react';
 import CheckoutPos from './CheckoutPos';
 import InventoryDashboard from './InventoryDashboard';
 import SupplierDirectory from './SupplierDirectory';
 import SalesReport from './SalesReport';
 import Login from './Login';
 import ReservationsDashboard from './ReservationsDashboard';
+import ReturnsDashboard from './ReturnsDashboard'; // ✅ New Import
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('checkout');
@@ -220,6 +221,8 @@ export default function App() {
                 <button onClick={() => setActiveTab('stock')} className={getBtnClass('stock')}><ArrowLeftRight size={20}/> Stock Control</button>
                 <button onClick={() => setActiveTab('history')} className={getBtnClass('history')}><FileText size={20}/> Stock History</button>
                 <button onClick={() => setActiveTab('sales_history')} className={getBtnClass('sales_history')}><Receipt size={20}/> Checkout History</button>
+                {/* ✅ Added the new Returns Dashboard button here */}
+                <button onClick={() => setActiveTab('returns')} className={getBtnClass('returns')}><RotateCcw size={20}/> Returns & Refunds</button>
                 <button onClick={() => setActiveTab('reports')} className={getBtnClass('reports')}><PieChart size={20}/> Reports</button>
                 <button onClick={() => setActiveTab('users')} className={getBtnClass('users')}><Users size={20}/> Manage Users</button>
               </>
@@ -281,6 +284,8 @@ export default function App() {
           {activeTab === 'stock' && <StockManagement user={user} />}
           {activeTab === 'history' && <StockHistory />}
           {activeTab === 'sales_history' && <SalesHistory user={user} />}
+          {/* ✅ Loaded the new component */}
+          {activeTab === 'returns' && <ReturnsDashboard user={user} />}
           {activeTab === 'reports' && <SalesReport />}
           {activeTab === 'users' && <UserManagement user={user} />}
         </main>

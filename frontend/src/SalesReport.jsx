@@ -44,10 +44,12 @@ export default function SalesReport() {
     }
   }, [period, startDate, endDate]);
 
+  // 1. Calculate Gross Revenue (This is already adjusted by the backend for returns!)
   const grossRevenue = summary.reduce((sum, s) => sum + parseFloat(s.total), 0);
   
-  // REAL PROFIT CALCULATION: Revenue - Refunds - Original Buying Cost
-  const netProfit = grossRevenue - totalReturns - totalCogs;
+  // 2. 🚨 THE FIX: Net Profit is JUST Revenue minus Cost. 
+  // We DO NOT subtract totalReturns here, because grossRevenue already went down!
+  const netProfit = grossRevenue - totalCogs;
   
   const cashRevenue = summary.find(s => s.payment_type === 'Cash')?.total || 0;
   const cardRevenue = summary.find(s => s.payment_type === 'Card')?.total || 0;
@@ -153,9 +155,10 @@ export default function SalesReport() {
           <div className="text-2xl lg:text-3xl font-black text-slate-800 dark:text-white print:text-black">LKR {grossRevenue.toFixed(2)}</div>
         </div>
 
+        {/* This card just displays the totalReturns variable for cash flow awareness */}
         <div className="bg-red-50 dark:bg-red-900/20 p-6 rounded-2xl shadow-sm border border-red-100 dark:border-red-900/30 flex flex-col justify-between print:bg-white print:border-gray-300 print:shadow-none print:p-4 transition-colors">
           <div className="flex items-center gap-2 mb-4 text-red-500 dark:text-red-400 font-bold text-sm print:text-gray-500">
-            <RotateCcw size={18} /> Total Refunds
+            <RotateCcw size={18} /> Total Cash Refunded
           </div>
           <div className="text-2xl lg:text-3xl font-black text-red-600 dark:text-red-400 print:text-black">- LKR {totalReturns.toFixed(2)}</div>
         </div>
@@ -188,7 +191,6 @@ export default function SalesReport() {
           {/* BAR CHART */}
           <div className="lg:col-span-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm p-6 print:border-none print:shadow-none print:p-0 transition-colors">
             <h2 className="font-bold text-lg mb-6 text-slate-800 dark:text-white">Top 10 Selling Items</h2>
-            {/* Added bottom margin to account for tilted text */}
             <div className="h-80 w-full">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={items.slice(0, 10)} margin={{ top: 10, right: 10, left: 0, bottom: 60 }}>
@@ -205,10 +207,8 @@ export default function SalesReport() {
                   />
                   <YAxis tick={{fontSize: 12, fill: '#64748b'}} tickLine={false} axisLine={false} tickFormatter={(val) => `Rs.${val}`} width={80} />
                   
-                  {/* Using custom dark mode compliant tooltip */}
                   <RechartsTooltip cursor={{fill: 'rgba(100, 116, 139, 0.05)'}} content={<CustomTooltip />} />
                   
-                  {/* maxBarSize prevents giant blocky bars when there are only a few items */}
                   <Bar dataKey="item_revenue" radius={[6, 6, 0, 0]} maxBarSize={60}>
                     {items.slice(0, 10).map((entry, index) => (
                       <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
@@ -229,7 +229,7 @@ export default function SalesReport() {
                     data={paymentData}
                     cx="50%"
                     cy="50%"
-                    innerRadius="55%" // Use percentages so it scales properly
+                    innerRadius="55%" 
                     outerRadius="80%"
                     paddingAngle={5}
                     dataKey="value"
@@ -240,7 +240,6 @@ export default function SalesReport() {
                     ))}
                   </Pie>
                   
-                  {/* Using custom dark mode compliant tooltip */}
                   <RechartsTooltip content={<CustomTooltip />} />
                   
                   <Legend verticalAlign="bottom" height={36} iconType="circle" wrapperStyle={{ fontSize: '12px', fontWeight: 'bold', color: '#64748b', paddingTop: '20px' }}/>

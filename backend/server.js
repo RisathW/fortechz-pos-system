@@ -4,6 +4,7 @@ const cors = require('cors');
 const path = require('path'); 
 const fs = require('fs');         // ✅ File System (For the Audit Log)
 const os = require('os');         // ✅ Operating System (To find the Documents folder safely)
+const { exec } = require('child_process'); // ✅ Required to run the Windows lock command
 const escpos = require('escpos');
 escpos.USB = require('escpos-usb');
 
@@ -22,15 +23,18 @@ process.on('uncaughtException', function (err) {
 let pool;
 
 // ==========================================
-// 📝 SECURE TEXT FILE AUDIT LOGGER (.exe SAFE)
+// 🔒 SECURE, AUTO-LOCKING AUDIT LOGGER
 // ==========================================
 function writeAuditLog(user, action, details) {
   const timestamp = new Date().toISOString();
   const logMessage = `[${timestamp}] USER: ${user || 'System'} | ACTION: ${action} | DETAILS: ${details}\n`;
   
-  // Saves the log safely to "Documents/ForTechZ_Logs" so the .exe never crashes
-  const logDirectory = path.join(os.homedir(), 'Documents', 'ForTechZ_Logs');
+  // 1. Hide the log deep in the invisible Windows AppData folder
+  const logDirectory = path.join(process.env.APPDATA || os.homedir(), 'ForTechZ_Logs');
   const logFilePath = path.join(logDirectory, 'pos_audit.log');
+
+  // Check if this is the very first time the file is being created
+  const isFirstRun = !fs.existsSync(logFilePath);
 
   // Create the folder if it doesn't exist yet
   if (!fs.existsSync(logDirectory)) {
@@ -40,6 +44,21 @@ function writeAuditLog(user, action, details) {
   // Append the log to the file
   fs.appendFile(logFilePath, logMessage, (err) => {
     if (err) console.error("Failed to write to audit log:", err);
+
+    // 2. AUTO-LOCK SCRIPT: Only triggers once upon creation
+    if (isFirstRun && process.platform === 'win32') {
+      
+      // Grant: Read (R) & Append Data (AD) | Deny: Write/Modify Data (WD) & Delete (DE)
+      const lockCommand = `icacls "${logFilePath}" /grant Everyone:(R,AD) /deny Everyone:(WD,DE)`;
+      
+      exec(lockCommand, (error) => {
+        if (error) {
+          console.error("Auto-lock failed:", error);
+        } else {
+          console.log("🔒 Security Active: Audit log created and manually locked against tampering.");
+        }
+      });
+    }
   });
 }
 
