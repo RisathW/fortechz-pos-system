@@ -9,7 +9,7 @@ export default function SalesHistory({ user }) {
   
   const [reprintSale, setReprintSale] = useState(null);
   const [activeReturn, setActiveReturn] = useState(null);
-  const [viewSale, setViewSale] = useState(null); // State for viewing items
+  const [viewSale, setViewSale] = useState(null); 
   const [returnItems, setReturnItems] = useState([]);
 
   const currentUser = user || JSON.parse(localStorage.getItem('user') || '{}');
@@ -113,10 +113,10 @@ export default function SalesHistory({ user }) {
           </div>
         )}
 
-        {/* --- VIEW ITEMS MODAL (NEW) --- */}
+        {/* --- VIEW ITEMS MODAL (Original vs Returned Columns) --- */}
         {viewSale && (
           <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50">
-            <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-[600px] max-h-[85vh] flex flex-col overflow-hidden border border-slate-200 dark:border-slate-700">
+            <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-[750px] max-h-[85vh] flex flex-col overflow-hidden border border-slate-200 dark:border-slate-700">
               <div className="flex justify-between items-center p-5 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50">
                 <div>
                   <h3 className="font-black text-xl text-slate-800 dark:text-white flex items-center gap-2">
@@ -132,21 +132,41 @@ export default function SalesHistory({ user }) {
                   <thead className="bg-slate-100 dark:bg-slate-800">
                     <tr>
                       <th className="p-3 font-bold text-slate-700 dark:text-slate-300 text-sm">Item Name</th>
-                      <th className="p-3 text-center font-bold text-slate-700 dark:text-slate-300 text-sm">Qty</th>
+                      <th className="p-3 text-center font-bold text-slate-700 dark:text-slate-300 text-sm border-l border-slate-200 dark:border-slate-700 bg-slate-200/50 dark:bg-slate-700/50">Purchased (Orig)</th>
+                      <th className="p-3 text-center font-bold text-red-600 dark:text-red-400 text-sm bg-red-50/50 dark:bg-red-900/20">Returned</th>
+                      <th className="p-3 text-center font-black text-emerald-600 dark:text-emerald-400 text-sm border-r border-slate-200 dark:border-slate-700 bg-emerald-50/50 dark:bg-emerald-900/20">Remaining</th>
                       <th className="p-3 text-right font-bold text-slate-700 dark:text-slate-300 text-sm">Unit Price</th>
+                      <th className="p-3 text-right font-bold text-slate-700 dark:text-slate-300 text-sm">Net Subtotal</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-700/50">
-                    {viewSale.items.filter(i=>i && i.title).map((item, idx) => (
-                      <tr key={idx} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
-                        <td className="p-3 text-sm font-bold text-slate-800 dark:text-white">
-                           {item.title} 
-                           {item.qty === 0 && <span className="ml-2 text-[10px] bg-red-100 text-red-600 px-2 py-0.5 rounded uppercase">Fully Returned</span>}
-                        </td>
-                        <td className="p-3 text-center text-sm font-black text-slate-600 dark:text-slate-400">{item.qty}</td>
-                        <td className="p-3 text-right text-sm text-slate-500 dark:text-slate-400">{Number(item.price || (item.subtotal / (item.qty || 1))).toFixed(2)}</td>
-                      </tr>
-                    ))}
+                    {viewSale.items.filter(i=>i && i.title).map((item, idx) => {
+                      const originalQty = item.original_qty || item.qty; 
+                      const returnedQty = originalQty - item.qty;
+                      return (
+                        <tr key={idx} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
+                          <td className="p-3 text-sm font-bold text-slate-800 dark:text-white">
+                             {item.title} 
+                             {item.qty === 0 && <span className="ml-2 text-[10px] bg-red-100 text-red-600 px-2 py-0.5 rounded uppercase">Fully Returned</span>}
+                          </td>
+                          <td className="p-3 text-center text-sm font-bold text-slate-500 dark:text-slate-400 border-l border-slate-100 dark:border-slate-700/50">
+                            {originalQty}
+                          </td>
+                          <td className="p-3 text-center text-sm font-bold text-red-500 dark:text-red-400">
+                            {returnedQty > 0 ? returnedQty : '-'}
+                          </td>
+                          <td className="p-3 text-center text-sm font-black text-emerald-600 dark:text-emerald-400 border-r border-slate-100 dark:border-slate-700/50">
+                            {item.qty}
+                          </td>
+                          <td className="p-3 text-right text-sm text-slate-500 dark:text-slate-400">
+                            {Number(item.price || (item.subtotal / (item.qty || 1))).toFixed(2)}
+                          </td>
+                          <td className="p-3 text-right text-sm font-black text-slate-800 dark:text-white">
+                            {Number(item.subtotal || 0).toFixed(2)}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -248,7 +268,9 @@ export default function SalesHistory({ user }) {
                   const refundedAmount = Number(sale.refunded_amount) || 0;
                   const remainingItems = (sale.items || []).reduce((acc, item) => acc + item.qty, 0);
                   const isFullyRefunded = remainingItems === 0;
-                  const netTotal = Math.max(0, Number(sale.total_amount) - refundedAmount);
+                  
+                  // 🐛 FIXED: The backend already accurately calculates the Net Total into total_amount!
+                  const netTotal = Number(sale.total_amount);
 
                   return (
                     <tr key={sale.id} className={`transition-colors ${refundedAmount > 0 ? 'bg-red-50/40 dark:bg-red-900/10 hover:bg-red-50 dark:hover:bg-red-900/20' : 'hover:bg-slate-50 dark:hover:bg-slate-800/50'}`}>
@@ -293,7 +315,7 @@ export default function SalesHistory({ user }) {
         </div>
       </div>
       
-      {/* (Keep Reprint Modal exactly as it was) */}
+      {/* --- SMART THERMAL RECEIPT REPRINT (Handles Returns Properly) --- */}
       {reprintSale && (
         <div className="hidden print:block w-[80mm] p-4 text-black bg-white font-mono text-sm mx-auto">
           <div className="text-center mb-4">
@@ -308,17 +330,42 @@ export default function SalesHistory({ user }) {
           </div>
           {(!reprintSale.invoice_number.startsWith('ADV-') && !reprintSale.invoice_number.startsWith('BAL-')) && (
             <table className="w-full mb-4 text-xs">
-              <thead><tr className="border-b border-black border-dashed"><th className="text-left pb-1">Item</th><th className="text-center pb-1">Qty</th><th className="text-right pb-1">Amt</th></tr></thead>
+              <thead><tr className="border-b border-black border-dashed"><th className="text-left pb-1">Item</th><th className="text-center pb-1">Orig Qty</th><th className="text-right pb-1">Amt</th></tr></thead>
               <tbody>
-                {(reprintSale.items || []).map((item, idx) => (
-                  <tr key={idx}><td className="py-1 break-words">{(item.title || '').substring(0, 15)}</td><td className="py-1 text-center">{item.qty}</td><td className="py-1 text-right">{Number(item.subtotal || 0).toFixed(2)}</td></tr>
-                ))}
+                {(reprintSale.items || []).map((item, idx) => {
+                  const originalQty = item.original_qty || item.qty;
+                  const itemPrice = item.price || (item.subtotal / (item.qty || 1));
+                  const originalSubtotal = originalQty * itemPrice;
+                  return (
+                    <tr key={idx}>
+                      <td className="py-1 break-words">{(item.title || '').substring(0, 15)}</td>
+                      <td className="py-1 text-center">{originalQty}</td>
+                      <td className="py-1 text-right">{Number(originalSubtotal).toFixed(2)}</td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           )}
-          <div className="border-t border-black border-dashed pt-2 flex justify-between font-black text-base mb-4">
-            <span>TOTAL:</span><span>LKR {Number(reprintSale.total_amount || 0).toFixed(2)}</span>
+          
+          <div className="border-t border-black border-dashed pt-2 flex justify-between font-black text-base">
+            <span>ORIGINAL TOTAL:</span>
+            <span>LKR {(Number(reprintSale.total_amount) + Number(reprintSale.refunded_amount || 0)).toFixed(2)}</span>
           </div>
+
+          {Number(reprintSale.refunded_amount) > 0 && (
+            <>
+              <div className="flex justify-between text-sm mt-1 mb-1">
+                <span>REFUNDED:</span>
+                <span>- LKR {Number(reprintSale.refunded_amount).toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between font-black text-base border-t border-black border-dotted pt-1 mb-4">
+                <span>NET TOTAL:</span>
+                <span>LKR {Number(reprintSale.total_amount).toFixed(2)}</span>
+              </div>
+            </>
+          )}
+
           <div className="text-center text-xs mt-6"><p>Thank You, Come Again!</p></div>
         </div>
       )}
