@@ -1,10 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { Save, Trash2, Building2 } from 'lucide-react';
+import { Save, Trash2, Building2, Plus, Phone, Mail, MapPin, CreditCard } from 'lucide-react';
+import { Page, Card, StatCard, Button, IconButton, SearchInput, Modal, ConfirmModal, Toast, EmptyRow, Avatar, money, inputCls, labelCls, thCls, tdCls, trCls, cx } from './ui';
 
 export default function SupplierDirectory() {
   const [suppliers, setSuppliers] = useState([]);
   const [toast, setToast] = useState('');
   const [deleteConfirm, setDeleteConfirm] = useState(null);
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [search, setSearch] = useState('');
 
   const [formData, setFormData] = useState({
     company_name: '',
@@ -46,6 +49,7 @@ export default function SupplierDirectory() {
     if (res.ok) {
       showToast("Supplier added successfully!");
       fetchSuppliers();
+      setShowAddModal(false);
       setFormData({
         company_name: '', contact_person: '', phone_number: '',
         address: '', city: '', email: '', credit_limit: ''
@@ -67,97 +71,109 @@ export default function SupplierDirectory() {
     setDeleteConfirm(null);
   };
 
+  const q = search.toLowerCase();
+  const filtered = suppliers.filter(s =>
+    [s.company_name, s.contact_person, s.phone_number, s.city, s.email].some(v => (v || '').toLowerCase().includes(q))
+  );
+  const cities = new Set(suppliers.map(s => (s.city || '').trim()).filter(Boolean));
+  const totalCredit = suppliers.reduce((a, s) => a + (Number(s.credit_limit) || 0), 0);
+
+  const field = (key, label, props = {}) => (
+    <div className={props.span || ''}>
+      <label className={labelCls}>{label}</label>
+      <input type={props.type || 'text'} step={props.step} className={inputCls} value={formData[key]} onChange={e => setFormData({...formData, [key]: e.target.value})} required={props.required} autoFocus={props.autoFocus} />
+    </div>
+  );
+
   return (
-    <div className="p-8 h-full flex flex-col gap-6 overflow-y-auto bg-slate-50 dark:bg-slate-950 relative transition-colors">
-      
-      {/* FLOATING TOAST NOTIFICATION */}
-      {toast && (
-        <div className="fixed top-6 right-6 bg-slate-800 text-white px-6 py-3 rounded-lg shadow-2xl z-50 font-bold border-l-4 border-blue-500 animate-pulse">
-          {toast}
-        </div>
-      )}
+    <Page>
+      <Toast message={toast} />
 
-      {/* CUSTOM CONFIRM MODAL */}
       {deleteConfirm && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50">
-          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-96 p-6 border border-transparent dark:border-slate-700">
-            <h3 className="font-black text-xl mb-4 dark:text-white">Confirm Deletion</h3>
-            <p className="text-slate-600 dark:text-slate-300 mb-6">Are you sure you want to delete <span className="font-bold">"{deleteConfirm.company_name}"</span>?</p>
-            <div className="flex gap-2">
-              <button onClick={() => setDeleteConfirm(null)} className="w-1/2 bg-slate-200 dark:bg-slate-800 dark:text-white font-bold py-3 rounded-xl transition-colors">Cancel</button>
-              <button onClick={executeDelete} className="w-1/2 bg-red-600 text-white font-bold py-3 rounded-xl hover:bg-red-700 transition-colors">Delete</button>
-            </div>
-          </div>
-        </div>
+        <ConfirmModal title="Confirm Deletion" icon={Trash2} confirmLabel="Delete"
+          message={<>Are you sure you want to delete <b className="text-slate-900 dark:text-white">"{deleteConfirm.company_name}"</b>?</>}
+          onConfirm={executeDelete} onCancel={() => setDeleteConfirm(null)} />
       )}
 
-      <div>
-        <h1 className="text-3xl font-black text-slate-800 dark:text-white flex items-center gap-3">
-          <Building2 className="text-blue-600 dark:text-blue-400" size={32} /> Supplier Directory
-        </h1>
-        <p className="text-slate-500 dark:text-slate-400 font-medium">Manage your vendors and contact information.</p>
+      {showAddModal && (
+        <Modal title="Add Supplier" subtitle="Vendor contact and credit details" icon={Building2} width="max-w-2xl" onClose={() => setShowAddModal(false)}>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="grid grid-cols-3 gap-4">
+              {field('company_name', 'Company Name *', { required: true, autoFocus: true })}
+              {field('contact_person', 'Contact Person')}
+              {field('phone_number', 'Phone Number')}
+            </div>
+            <div className="grid grid-cols-3 gap-4">
+              {field('address', 'Address', { span: 'col-span-2' })}
+              {field('city', 'City')}
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              {field('email', 'Email Address', { type: 'email' })}
+              {field('credit_limit', 'Credit Limit (LKR)', { type: 'number', step: '0.01' })}
+            </div>
+            <div className="flex gap-2 pt-2">
+              <Button type="button" variant="secondary" className="flex-1" onClick={() => setShowAddModal(false)}>Cancel</Button>
+              <Button type="submit" className="flex-1"><Save size={16} /> Save Supplier</Button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+        <StatCard label="Total Suppliers" sub="Active vendors" value={suppliers.length} icon={Building2} bars={false} />
+        <StatCard label="Cities Covered" sub="Supplier locations" value={cities.size} icon={MapPin} tone="green" bars={false} />
+        <StatCard label="Total Credit Limit" sub="Across all suppliers" value={money(totalCredit)} icon={CreditCard} tone="purple" bars={false} />
       </div>
 
-      {/* ADD SUPPLIER FORM */}
-      <form onSubmit={handleSubmit} className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 transition-colors">
-        <div className="grid grid-cols-3 gap-4 mb-4">
-          <input type="text" placeholder="Company Name *" className="p-3 border dark:border-slate-700 dark:bg-slate-800 dark:text-white rounded-lg focus:ring-2 focus:ring-blue-500 outline-none font-bold" value={formData.company_name} onChange={e => setFormData({...formData, company_name: e.target.value})} required />
-          <input type="text" placeholder="Contact Person" className="p-3 border dark:border-slate-700 dark:bg-slate-800 dark:text-white rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" value={formData.contact_person} onChange={e => setFormData({...formData, contact_person: e.target.value})} />
-          <input type="text" placeholder="Phone Number" className="p-3 border dark:border-slate-700 dark:bg-slate-800 dark:text-white rounded-lg focus:ring-2 focus:ring-blue-500 outline-none font-mono" value={formData.phone_number} onChange={e => setFormData({...formData, phone_number: e.target.value})} />
+      <Card className="overflow-hidden">
+        <div className="flex flex-wrap items-center justify-between gap-3 p-5">
+          <div>
+            <h3 className="text-sm font-semibold text-slate-900 dark:text-white">Supplier Directory</h3>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{filtered.length} of {suppliers.length} suppliers</p>
+          </div>
+          <div className="flex gap-2">
+            <SearchInput value={search} onChange={setSearch} placeholder="Search company, contact, city..." className="w-72" />
+            <Button onClick={() => setShowAddModal(true)}><Plus size={16}/> Add Supplier</Button>
+          </div>
         </div>
-        
-        <div className="grid grid-cols-3 gap-4 mb-4">
-          <input type="text" placeholder="Address" className="col-span-2 p-3 border dark:border-slate-700 dark:bg-slate-800 dark:text-white rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" value={formData.address} onChange={e => setFormData({...formData, address: e.target.value})} />
-          <input type="text" placeholder="City" className="p-3 border dark:border-slate-700 dark:bg-slate-800 dark:text-white rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" value={formData.city} onChange={e => setFormData({...formData, city: e.target.value})} />
-        </div>
-
-        <div className="grid grid-cols-3 gap-4">
-          <input type="email" placeholder="Email Address" className="p-3 border dark:border-slate-700 dark:bg-slate-800 dark:text-white rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} />
-          <input type="number" step="0.01" placeholder="Credit Limit (LKR)" className="p-3 border dark:border-slate-700 dark:bg-slate-800 dark:text-white rounded-lg focus:ring-2 focus:ring-blue-500 outline-none font-bold text-slate-700 dark:text-slate-300" value={formData.credit_limit} onChange={e => setFormData({...formData, credit_limit: e.target.value})} />
-          <button type="submit" className="bg-blue-600 text-white font-bold p-3 rounded-lg hover:bg-blue-700 transition flex items-center justify-center gap-2 shadow-sm">
-            <Save size={20} /> Save Supplier
-          </button>
-        </div>
-      </form>
-
-      {/* SUPPLIERS TABLE */}
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm overflow-hidden flex-1 transition-colors">
-        <table className="w-full text-left text-sm">
-          <thead className="bg-slate-50 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 sticky top-0 text-slate-700 dark:text-slate-300">
+        <table className="w-full text-left">
+          <thead>
             <tr>
-              <th className="p-4 font-bold">Company</th>
-              <th className="p-4 font-bold">Contact</th>
-              <th className="p-4 font-bold">Phone</th>
-              <th className="p-4 font-bold">Email</th>
-              <th className="p-4 font-bold">City</th>
-              <th className="p-4 font-bold text-right">Credit Limit</th>
-              <th className="p-4 font-bold text-center">Actions</th>
+              <th className={thCls}>Company</th>
+              <th className={thCls}>Contact</th>
+              <th className={thCls}>Phone</th>
+              <th className={thCls}>Email</th>
+              <th className={thCls}>City</th>
+              <th className={cx(thCls, 'text-right')}>Credit Limit</th>
+              <th className={cx(thCls, 'text-center')}>Actions</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-            {suppliers.length === 0 && (
-              <tr><td colSpan="7" className="p-8 text-center text-slate-500 dark:text-slate-400 font-medium">No suppliers added yet.</td></tr>
-            )}
-            {suppliers.map(s => (
-              <tr key={s.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
-                <td className="p-4 font-black text-slate-800 dark:text-white">{s.company_name}</td>
-                <td className="p-4 text-slate-600 dark:text-slate-300 font-medium">{s.contact_person || '-'}</td>
-                <td className="p-4 font-mono text-slate-600 dark:text-slate-300">{s.phone_number || '-'}</td>
-                <td className="p-4 text-blue-600 dark:text-blue-400 font-medium">{s.email || '-'}</td>
-                <td className="p-4 text-slate-600 dark:text-slate-300">{s.city || '-'}</td>
-                <td className="p-4 font-bold text-slate-700 dark:text-slate-200 text-right">
-                  LKR {Number(s.credit_limit || 0).toFixed(2)}
+          <tbody>
+            {filtered.length === 0 && <EmptyRow colSpan={7}>{suppliers.length ? 'No suppliers match your search.' : 'No suppliers added yet.'}</EmptyRow>}
+            {filtered.map(s => (
+              <tr key={s.id} className={trCls}>
+                <td className={tdCls}>
+                  <div className="flex items-center gap-3">
+                    <Avatar name={s.company_name} />
+                    <div>
+                      <p className="font-semibold text-slate-900 dark:text-white">{s.company_name}</p>
+                      {s.address && <p className="text-xs text-slate-400 truncate max-w-[220px]">{s.address}</p>}
+                    </div>
+                  </div>
                 </td>
-                <td className="p-4 text-center">
-                  <button onClick={() => setDeleteConfirm({ id: s.id, company_name: s.company_name })} className="p-2 text-red-500 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors">
-                    <Trash2 size={18} />
-                  </button>
+                <td className={tdCls}>{s.contact_person || '-'}</td>
+                <td className={cx(tdCls, 'font-mono')}>{s.phone_number ? <span className="inline-flex items-center gap-1.5"><Phone size={12} className="text-slate-400"/>{s.phone_number}</span> : '-'}</td>
+                <td className={tdCls}>{s.email ? <a href={`mailto:${s.email}`} className="inline-flex items-center gap-1.5 text-blue-600 dark:text-blue-400 hover:underline"><Mail size={12}/>{s.email}</a> : '-'}</td>
+                <td className={tdCls}>{s.city || '-'}</td>
+                <td className={cx(tdCls, 'text-right font-semibold text-slate-900 dark:text-white')}>{money(s.credit_limit)}</td>
+                <td className={cx(tdCls, 'text-center')}>
+                  <IconButton tone="red" onClick={() => setDeleteConfirm({ id: s.id, company_name: s.company_name })} title="Delete"><Trash2 size={16} /></IconButton>
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
-      </div>
-    </div>
+      </Card>
+    </Page>
   );
 }

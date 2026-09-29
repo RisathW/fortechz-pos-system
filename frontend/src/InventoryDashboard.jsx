@@ -1,18 +1,36 @@
 import React, { useState, useEffect } from 'react';
-import { Save, Trash2, Library, Search } from 'lucide-react';
+import { Save, Trash2, Plus, BookOpen, LayoutGrid, List, MapPin, Package, FilePen, Tags } from 'lucide-react';
+import useCategories from './useCategories';
+import { Page, Card, Badge, Button, IconButton, SearchInput, Modal, ConfirmModal, Toast, EmptyRow, money, inputCls, labelCls, thCls, tdCls, trCls, cx } from './ui';
+
+const COVER_TONES = ['from-blue-600 to-violet-600', 'from-emerald-600 to-teal-500', 'from-amber-500 to-orange-600', 'from-rose-600 to-pink-500', 'from-cyan-600 to-blue-500', 'from-violet-600 to-fuchsia-500', 'from-slate-600 to-slate-500'];
 
 export default function InventoryDashboard({ user }) {
   const [books, setBooks] = useState([]);
   const [search, setSearch] = useState('');
   const [toast, setToast] = useState('');
-  const [deleteConfirm, setDeleteConfirm] = useState(null); 
-  
+  const [deleteConfirm, setDeleteConfirm] = useState(null);
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [editItem, setEditItem] = useState(null);
+  const [showCategories, setShowCategories] = useState(false);
+  const [newCategory, setNewCategory] = useState('');
+  const [catDelete, setCatDelete] = useState(null);
+  const [view, setView] = useState('grid');
+
+  // Filters
+  const [stockFilter, setStockFilter] = useState('All');
+  const [categoryFilter, setCategoryFilter] = useState('All');
+  const [minPrice, setMinPrice] = useState('');
+  const [maxPrice, setMaxPrice] = useState('');
+
   // State updated to handle shelf and row separately
   const [formData, setFormData] = useState({
     title: '', author_name: '', isbn_barcode: '', category: 'Reading Books', retail_price: '', cost_price: '', shelf: '', row: ''
   });
 
-  const categories = ['Reading Books', 'Stationery', 'Exercise Books', 'Water Bottles', 'Trophies', 'Tennis Balls', 'Other'];
+  const { categories, categoryRows, reloadCategories } = useCategories();
+  const EMPTY_FORM = { title: '', author_name: '', isbn_barcode: '', category: 'Reading Books', retail_price: '', cost_price: '', shelf: '', row: '' };
+  const isManager = user?.role === 'Manager';
 
   const showToast = (msg) => {
     setToast(msg);
@@ -40,19 +58,58 @@ export default function InventoryDashboard({ user }) {
       locationString = `Row - ${formData.row}`;
     }
 
-    const res = await fetch('http://localhost:5000/api/books', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...formData, available_qty: 0, location: locationString }) 
-    });
+    const res = editItem
+      ? await fetch(`http://localhost:5000/api/books/${editItem.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...formData, location: locationString, username: user?.username })
+        })
+      : await fetch('http://localhost:5000/api/books', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...formData, available_qty: 0, location: locationString })
+        });
 
     if (res.ok) {
-      showToast("Item added! Use Stock Control to add quantities.");
+      showToast(editItem ? "Item updated!" : "Item added! Use Stock Control to add quantities.");
       fetchBooks();
-      setFormData({ title: '', author_name: '', isbn_barcode: '', category: 'Reading Books', retail_price: '', cost_price: '', shelf: '', row: '' });
+      reloadCategories();
+      closeForm();
     } else {
-      showToast("Error adding item.");
+      showToast(editItem ? "Error updating item." : "Error adding item.");
     }
+  };
+
+  const closeForm = () => { setShowAddModal(false); setEditItem(null); setFormData(EMPTY_FORM); };
+
+  const openEdit = (b) => {
+    const loc = b.location || '';
+    const shelf = (loc.match(/Shelf - (.*?)(?: Row - |$)/) || [])[1] || '';
+    const row = (loc.match(/Row - (.+)$/) || [])[1] || '';
+    setFormData({
+      title: b.title || '', author_name: b.author_name && b.author_name !== 'N/A' ? b.author_name : '', isbn_barcode: b.isbn_barcode || '',
+      category: b.category || 'Other', retail_price: b.retail_price ?? '', cost_price: b.cost_price ?? '', shelf: shelf.trim(), row: row.trim(),
+    });
+    setEditItem(b);
+  };
+
+  const addCategory = async (e) => {
+    e.preventDefault();
+    const res = await fetch('http://localhost:5000/api/categories', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: newCategory }) });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return showToast('Error: ' + (data.error || 'could not add category'));
+    showToast(`Category "${newCategory}" added.`);
+    setNewCategory('');
+    reloadCategories();
+  };
+
+  const deleteCategory = async () => {
+    const res = await fetch(`http://localhost:5000/api/categories/${catDelete.id}`, { method: 'DELETE' });
+    const data = await res.json().catch(() => ({}));
+    setCatDelete(null);
+    if (!res.ok) return showToast('Error: ' + (data.error || 'could not delete category'));
+    showToast('Category deleted.');
+    reloadCategories();
   };
 
   const executeDelete = async () => {
@@ -65,142 +122,252 @@ export default function InventoryDashboard({ user }) {
     setDeleteConfirm(null);
   };
 
+  const stockOf = (b) => Number(b.available_qty) || 0;
+  const stockStatus = (b) => stockOf(b) <= 0 ? 'Out' : stockOf(b) <= 5 ? 'Low' : 'In';
+
   const filteredBooks = books.filter(b => {
     const s = search.toLowerCase();
-    return (b.title || '').toLowerCase().includes(s) || 
-           (b.isbn_barcode || '').includes(search) || 
+    const matchSearch = (b.title || '').toLowerCase().includes(s) ||
+           (b.isbn_barcode || '').includes(search) ||
            (b.author_name || '').toLowerCase().includes(s) ||
            (b.location || '').toLowerCase().includes(s);
+    if (!matchSearch) return false;
+    if (stockFilter !== 'All' && stockStatus(b) !== stockFilter) return false;
+    if (categoryFilter !== 'All' && b.category !== categoryFilter) return false;
+    const price = Number(b.retail_price) || 0;
+    if (minPrice !== '' && price < Number(minPrice)) return false;
+    if (maxPrice !== '' && price > Number(maxPrice)) return false;
+    return true;
   });
 
+  const counts = {
+    All: books.length,
+    In: books.filter(b => stockStatus(b) === 'In').length,
+    Low: books.filter(b => stockStatus(b) === 'Low').length,
+    Out: books.filter(b => stockStatus(b) === 'Out').length,
+  };
+
+  const resetFilters = () => { setStockFilter('All'); setCategoryFilter('All'); setMinPrice(''); setMaxPrice(''); setSearch(''); };
+
+  const StockBadge = ({ b }) => {
+    const st = stockStatus(b);
+    return <Badge tone={st === 'In' ? 'green' : st === 'Low' ? 'amber' : 'red'}>{st === 'In' ? 'In Stock' : st === 'Low' ? 'Low Stock' : 'Out of Stock'}</Badge>;
+  };
+
+  const Location = ({ b }) => (
+    <span className="inline-flex items-center gap-1 text-[11px] font-medium text-amber-600 dark:text-amber-400">
+      <MapPin size={11}/>{b.location === 'Unassigned' || !b.location ? 'Unassigned' : b.location}
+    </span>
+  );
+
   return (
-    <div className="p-8 h-full flex flex-col gap-6 overflow-y-auto bg-slate-50 dark:bg-slate-950 relative transition-colors">
-      
-      {toast && (
-        <div className="fixed top-6 right-6 bg-slate-800 text-white px-6 py-3 rounded-lg shadow-2xl z-50 font-bold border-l-4 border-emerald-500 animate-pulse">
-          {toast}
-        </div>
-      )}
+    <Page>
+      <Toast message={toast} />
 
       {deleteConfirm && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50">
-          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-96 p-6 border border-transparent dark:border-slate-700">
-            <h3 className="font-black text-xl mb-4 dark:text-white">Confirm Deletion</h3>
-            <p className="text-slate-600 dark:text-slate-300 mb-6">Are you sure you want to delete <span className="font-bold">"{deleteConfirm.title}"</span>?</p>
-            <div className="flex gap-2">
-              <button onClick={() => setDeleteConfirm(null)} className="w-1/2 bg-slate-200 dark:bg-slate-800 dark:text-white font-bold py-3 rounded-xl transition-colors">Cancel</button>
-              <button onClick={executeDelete} className="w-1/2 bg-red-600 text-white font-bold py-3 rounded-xl hover:bg-red-700 transition-colors">Delete</button>
-            </div>
-          </div>
-        </div>
+        <ConfirmModal title="Confirm Deletion" icon={Trash2} confirmLabel="Delete"
+          message={<>Are you sure you want to delete <b className="text-slate-900 dark:text-white">"{deleteConfirm.title}"</b>?</>}
+          onConfirm={executeDelete} onCancel={() => setDeleteConfirm(null)} />
       )}
 
-      <div className="flex justify-between items-end">
-        <div>
-          <h1 className="text-3xl font-black text-slate-800 dark:text-white flex items-center gap-3">
-            <Library className="text-blue-600 dark:text-blue-400" size={32} /> Book & Item Inventory
-          </h1>
-          <p className="text-slate-500 dark:text-slate-400 font-medium">View stock levels, pricing, and physical locations.</p>
-        </div>
-        
-        <div className="relative w-80">
-          <Search className="absolute left-3 top-3 text-slate-400" size={18} />
-          <input 
-            type="text" 
-            placeholder="Search Title, Barcode or Location..." 
-            value={search} 
-            onChange={(e) => setSearch(e.target.value)} 
-            className="w-full pl-10 p-2.5 border dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-white rounded-xl focus:ring-2 focus:ring-blue-500 outline-none font-medium shadow-sm transition-colors" 
-          />
-        </div>
-      </div>
+      {catDelete && (
+        <ConfirmModal title="Delete Category" icon={Trash2} confirmLabel="Delete"
+          message={<>Delete the category <b className="text-slate-900 dark:text-white">"{catDelete.name}"</b>? Only empty categories can be deleted.</>}
+          onConfirm={deleteCategory} onCancel={() => setCatDelete(null)} />
+      )}
 
-      {user?.role === 'Manager' && (
-        <form onSubmit={handleSubmit} className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 transition-colors">
-          <h2 className="font-bold text-slate-700 dark:text-slate-300 mb-4 uppercase tracking-wider text-xs">Manager Control: Add New Item</h2>
-          
-          <div className="grid grid-cols-5 gap-4 mb-4">
-            <input type="text" placeholder="Item Name / Title *" className="col-span-2 p-3 border dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-white rounded-lg focus:ring-2 focus:ring-blue-500 outline-none font-bold" value={formData.title} onChange={e => setFormData({...formData, title: e.target.value})} required />
-            <input type="text" placeholder="Barcode / ISBN" className="p-3 border dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-white rounded-lg focus:ring-2 focus:ring-blue-500 outline-none font-mono text-sm" value={formData.isbn_barcode} onChange={e => setFormData({...formData, isbn_barcode: e.target.value})} />
-            
-            {/* Split Input Boxes for Shelf and Row */}
-            <div className="col-span-1 flex gap-2">
-              <input type="text" placeholder="Shelf" className="w-1/2 p-3 border border-amber-200 dark:border-amber-800/50 bg-amber-50 dark:bg-amber-900/20 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none font-bold text-amber-700 dark:text-amber-400 text-center" value={formData.shelf} onChange={e => setFormData({...formData, shelf: e.target.value})} />
-              <input type="text" placeholder="Row" className="w-1/2 p-3 border border-amber-200 dark:border-amber-800/50 bg-amber-50 dark:bg-amber-900/20 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none font-bold text-amber-700 dark:text-amber-400 text-center" value={formData.row} onChange={e => setFormData({...formData, row: e.target.value})} />
+      {showCategories && (
+        <Modal title="Manage Categories" subtitle="Used in Inventory, Checkout and Stock Control" icon={Tags} width="max-w-lg" onClose={() => setShowCategories(false)}>
+          <form onSubmit={addCategory} className="flex gap-2 mb-4">
+            <input value={newCategory} onChange={e => setNewCategory(e.target.value)} placeholder="New category name, e.g. Children's Books" className={inputCls} required />
+            <Button type="submit" className="shrink-0"><Plus size={15}/> Add Category</Button>
+          </form>
+          <div className="rounded-xl border border-slate-200 dark:border-slate-800 divide-y divide-slate-100 dark:divide-slate-800">
+            {categoryRows.map(c => (
+              <div key={c.id} className="flex items-center justify-between px-4 py-2.5">
+                <span className="flex items-center gap-2 text-sm text-slate-900 dark:text-white"><Tags size={14} className="text-blue-500"/>{c.name}</span>
+                <span className="flex items-center gap-2">
+                  <Badge tone={Number(c.item_count) ? 'blue' : 'slate'}>{c.item_count} items</Badge>
+                  <IconButton tone="red" disabled={Number(c.item_count) > 0} onClick={() => setCatDelete(c)} title={Number(c.item_count) ? 'Move or delete its items first' : 'Delete category'}><Trash2 size={15}/></IconButton>
+                </span>
+              </div>
+            ))}
+          </div>
+        </Modal>
+      )}
+
+      {(showAddModal || editItem) && (
+        <Modal title={editItem ? 'Edit Inventory Item' : 'Add New Inventory'} subtitle={editItem ? `Stock level (${editItem.available_qty}) is changed through Stock Control` : 'Quantities are added later through Stock Control (GRN)'} icon={editItem ? FilePen : Plus} width="max-w-2xl" onClose={closeForm}>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="grid grid-cols-3 gap-4">
+              <div className="col-span-2">
+                <label className={labelCls}>Item Name / Title *</label>
+                <input type="text" className={inputCls} value={formData.title} onChange={e => setFormData({...formData, title: e.target.value})} required autoFocus />
+              </div>
+              <div>
+                <label className={labelCls}>Category</label>
+                <select className={inputCls} value={formData.category} onChange={e => setFormData({...formData, category: e.target.value})}>
+                  {categories.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
             </div>
+            <div className="grid grid-cols-3 gap-4">
+              <div className="col-span-2">
+                <label className={labelCls}>Author Name (If Book)</label>
+                <input type="text" className={inputCls} value={formData.author_name} onChange={e => setFormData({...formData, author_name: e.target.value})} />
+              </div>
+              <div>
+                <label className={labelCls}>Barcode / ISBN</label>
+                <input type="text" className={cx(inputCls, 'font-mono')} value={formData.isbn_barcode} onChange={e => setFormData({...formData, isbn_barcode: e.target.value})} />
+              </div>
+            </div>
+            <div className="grid grid-cols-4 gap-4">
+              <div>
+                <label className={labelCls}>Shelf</label>
+                <input type="text" className={inputCls} value={formData.shelf} onChange={e => setFormData({...formData, shelf: e.target.value})} />
+              </div>
+              <div>
+                <label className={labelCls}>Row</label>
+                <input type="text" className={inputCls} value={formData.row} onChange={e => setFormData({...formData, row: e.target.value})} />
+              </div>
+              <div>
+                <label className={labelCls}>Cost Price (LKR)</label>
+                <input type="number" step="0.01" className={inputCls} value={formData.cost_price} onChange={e => setFormData({...formData, cost_price: e.target.value})} />
+              </div>
+              <div>
+                <label className={labelCls}>Retail Price (LKR) *</label>
+                <input type="number" step="0.01" className={inputCls} value={formData.retail_price} onChange={e => setFormData({...formData, retail_price: e.target.value})} required />
+              </div>
+            </div>
+            <div className="flex gap-2 pt-2">
+              <Button type="button" variant="secondary" className="flex-1" onClick={closeForm}>Cancel</Button>
+              <Button type="submit" className="flex-1"><Save size={16} /> {editItem ? 'Save Changes' : 'Save Item'}</Button>
+            </div>
+          </form>
+        </Modal>
+      )}
 
-            <select className="col-span-1 p-3 border dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-white rounded-lg focus:ring-2 focus:ring-blue-500 outline-none font-medium" value={formData.category} onChange={e => setFormData({...formData, category: e.target.value})}>
+      <div className="flex gap-6 items-start">
+        {/* FILTER PANEL */}
+        <Card className="w-64 shrink-0 p-5 space-y-5 sticky top-0">
+          <h3 className="text-sm font-semibold text-slate-900 dark:text-white">Filters</h3>
+          <div>
+            <p className={labelCls}>Product Status</p>
+            <div className="flex flex-wrap gap-1.5">
+              {[['All', 'All'], ['In', 'In Stock'], ['Low', 'Low'], ['Out', 'Out']].map(([k, l]) => (
+                <button key={k} onClick={() => setStockFilter(k)}
+                  className={cx('px-2.5 py-1 rounded-md text-[11px] font-semibold transition-colors',
+                    stockFilter === k ? 'bg-blue-600 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:text-blue-600 dark:hover:text-white')}>
+                  {l} {counts[k]}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <label className={labelCls}>Category</label>
+            <select value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)} className={inputCls}>
+              <option value="All">Category: All</option>
               {categories.map(c => <option key={c} value={c}>{c}</option>)}
             </select>
           </div>
-          
-          <div className="grid grid-cols-4 gap-4">
-            <input type="text" placeholder="Author Name (If Book)" className="col-span-2 p-3 border dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-white rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" value={formData.author_name} onChange={e => setFormData({...formData, author_name: e.target.value})} />
-            <input type="number" step="0.01" placeholder="Cost Price (LKR)" className="p-3 border dark:border-slate-700 dark:border-red-800/50 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none font-bold text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20" value={formData.cost_price} onChange={e => setFormData({...formData, cost_price: e.target.value})} />
+          <div>
+            <label className={labelCls}>Price range (LKR)</label>
             <div className="flex gap-2">
-              <input type="number" step="0.01" placeholder="Retail Price *" className="w-full p-3 border dark:border-slate-700 dark:border-emerald-800/50 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/20" value={formData.retail_price} onChange={e => setFormData({...formData, retail_price: e.target.value})} required />
-              <button type="submit" className="bg-blue-600 text-white font-bold px-4 rounded-lg hover:bg-blue-700 transition shadow-sm">
-                <Save size={20} />
-              </button>
+              <input type="number" placeholder="Min" value={minPrice} onChange={e => setMinPrice(e.target.value)} className={inputCls} />
+              <input type="number" placeholder="Max" value={maxPrice} onChange={e => setMaxPrice(e.target.value)} className={inputCls} />
             </div>
           </div>
-        </form>
-      )}
+          <Button variant="outline" className="w-full" onClick={resetFilters}>Reset Filters</Button>
+        </Card>
 
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm overflow-hidden flex-1 transition-colors">
-        <table className="w-full text-left text-sm">
-          <thead className="bg-slate-50 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 sticky top-0 text-slate-700 dark:text-slate-300">
-            <tr>
-              <th className="p-4 font-bold">Item Details</th>
-              <th className="p-4 font-bold">Location</th>
-              <th className="p-4 font-bold">Category</th>
-              <th className="p-4 font-bold text-center">In Stock</th>
-              {/* ✅ Manager Only: Cost Price Column */}
-              {user?.role === 'Manager' && <th className="p-4 font-bold text-right">Cost Price</th>}
-              <th className="p-4 font-bold text-right">Retail Price</th>
-              {user?.role === 'Manager' && <th className="p-4 font-bold text-center">Actions</th>}
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-            {filteredBooks.length === 0 && (
-              <tr><td colSpan="7" className="p-8 text-center text-slate-500 dark:text-slate-400 font-medium">No items found.</td></tr>
-            )}
-            {filteredBooks.map(b => (
-              <tr key={b.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
-                <td className="p-4">
-                  <p className="font-black text-slate-800 dark:text-white">{b.title}</p>
-                  <p className="text-xs text-slate-400 dark:text-slate-500 font-mono">{b.isbn_barcode}</p>
-                </td>
-                <td className="p-4">
-                  <span className="bg-amber-100 dark:bg-amber-900/30 text-amber-800 dark:text-amber-400 border border-amber-200 dark:border-amber-800/50 font-bold px-2 py-1 rounded text-xs inline-block uppercase tracking-wide">
-                    {b.location === 'Unassigned' ? 'UNASSIGNED' : b.location}
-                  </span>
-                </td>
-                <td className="p-4 text-slate-600 dark:text-slate-300 font-medium">{b.category}</td>
-                <td className="p-4 text-center">
-                  <span className={`px-3 py-1 rounded-full text-xs font-bold ${b.available_qty <= 5 ? 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400' : 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400'}`}>
-                    {b.available_qty}
-                  </span>
-                </td>
-                
-                {/* ✅ Manager Only: Cost Price Value */}
-                {user?.role === 'Manager' && (
-                  <td className="p-4 font-bold text-red-500 dark:text-red-400 text-right">LKR {Number(b.cost_price).toFixed(2)}</td>
-                )}
+        {/* RESULTS */}
+        <div className="flex-1 min-w-0 flex flex-col gap-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-base font-semibold text-slate-900 dark:text-white">{filteredBooks.length} <span className="text-slate-500 dark:text-slate-400 font-normal text-sm">of {books.length} total products</span></p>
+            <div className="flex items-center gap-2">
+              <SearchInput value={search} onChange={setSearch} placeholder="Search title, author, barcode or location..." className="w-80" />
+              <div className="flex bg-slate-100 dark:bg-slate-800 rounded-lg p-0.5">
+                <IconButton onClick={() => setView('grid')} title="Grid view" className={view === 'grid' ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-white' : ''}><LayoutGrid size={16}/></IconButton>
+                <IconButton onClick={() => setView('list')} title="List view" className={view === 'list' ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-white' : ''}><List size={16}/></IconButton>
+              </div>
+              {isManager && <Button variant="secondary" onClick={() => setShowCategories(true)}><Tags size={16}/> Categories</Button>}
+              {isManager && <Button onClick={() => { setFormData(EMPTY_FORM); setShowAddModal(true); }}><Plus size={16}/> Add New Inventory</Button>}
+            </div>
+          </div>
 
-                <td className="p-4 font-bold text-slate-800 dark:text-white text-right">LKR {Number(b.retail_price).toFixed(2)}</td>
-                {user?.role === 'Manager' && (
-                  <td className="p-4 text-center">
-                    <button onClick={() => setDeleteConfirm(b)} className="p-2 text-red-500 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors">
-                      <Trash2 size={18} />
-                    </button>
-                  </td>
-                )}
-              </tr>
-            ))}
-          </tbody>
-        </table>
+          {view === 'grid' ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4">
+              {filteredBooks.length === 0 && <Card className="col-span-full p-12 text-center text-sm text-slate-500">No items found.</Card>}
+              {filteredBooks.map(b => (
+                <Card key={b.id} className="p-3 flex flex-col hover:border-blue-500/60 transition-colors">
+                  <div className={cx('h-28 rounded-xl bg-gradient-to-br flex items-center justify-center text-white/90 relative', COVER_TONES[Math.max(0, categories.indexOf(b.category)) % COVER_TONES.length])}>
+                    {b.category === 'Reading Books' ? <BookOpen size={34} strokeWidth={1.5}/> : <Package size={34} strokeWidth={1.5}/>}
+                    <span className="absolute top-2 left-2 text-[10px] font-semibold bg-black/25 rounded px-1.5 py-0.5">{b.category || 'Other'}</span>
+                  </div>
+                  <div className="flex items-start justify-between gap-2 mt-3">
+                    <p className="text-sm font-semibold text-slate-900 dark:text-white line-clamp-2 leading-snug">{b.title}</p>
+                    {isManager && (
+                      <span className="flex -mt-1 -mr-1 shrink-0">
+                        <IconButton tone="blue" onClick={() => openEdit(b)} title="Edit item"><FilePen size={15}/></IconButton>
+                        <IconButton tone="red" onClick={() => setDeleteConfirm(b)} title="Delete"><Trash2 size={15}/></IconButton>
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 truncate">
+                    {b.author_name && b.author_name !== 'N/A' ? b.author_name : 'Stocked Product'} · {stockOf(b)} in stock
+                  </p>
+                  <div className="mt-1"><Location b={b} /></div>
+                  <div className="flex items-end justify-between mt-auto pt-3">
+                    <StockBadge b={b} />
+                    <div className="text-right">
+                      {isManager && <p className="text-[10px] text-slate-400">Cost {money(b.cost_price)}</p>}
+                      <p className="text-sm font-bold text-slate-900 dark:text-white">{money(b.retail_price)}</p>
+                    </div>
+                  </div>
+                </Card>
+              ))}
+            </div>
+          ) : (
+            <Card className="overflow-hidden">
+              <table className="w-full text-left">
+                <thead>
+                  <tr>
+                    <th className={thCls}>Item Details</th>
+                    <th className={thCls}>Location</th>
+                    <th className={thCls}>Category</th>
+                    <th className={cx(thCls, 'text-center')}>In Stock</th>
+                    {isManager && <th className={cx(thCls, 'text-right')}>Cost Price</th>}
+                    <th className={cx(thCls, 'text-right')}>Retail Price</th>
+                    {isManager && <th className={cx(thCls, 'text-center')}>Actions</th>}
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredBooks.length === 0 && <EmptyRow colSpan={7}>No items found.</EmptyRow>}
+                  {filteredBooks.map(b => (
+                    <tr key={b.id} className={trCls}>
+                      <td className={tdCls}>
+                        <p className="font-semibold text-slate-900 dark:text-white">{b.title}</p>
+                        <p className="text-xs text-slate-400 dark:text-slate-500 font-mono">{b.isbn_barcode}</p>
+                      </td>
+                      <td className={tdCls}><Location b={b} /></td>
+                      <td className={tdCls}>{b.category}</td>
+                      <td className={cx(tdCls, 'text-center')}><Badge tone={stockStatus(b) === 'In' ? 'green' : stockStatus(b) === 'Low' ? 'amber' : 'red'}>{stockOf(b)}</Badge></td>
+                      {isManager && <td className={cx(tdCls, 'text-right text-slate-500')}>{money(b.cost_price)}</td>}
+                      <td className={cx(tdCls, 'text-right font-semibold text-slate-900 dark:text-white')}>{money(b.retail_price)}</td>
+                      {isManager && (
+                        <td className={cx(tdCls, 'text-center')}>
+                          <IconButton tone="blue" onClick={() => openEdit(b)} title="Edit item"><FilePen size={16} /></IconButton>
+                          <IconButton tone="red" onClick={() => setDeleteConfirm(b)} title="Delete"><Trash2 size={16} /></IconButton>
+                        </td>
+                      )}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </Card>
+          )}
+        </div>
       </div>
-    </div>
+    </Page>
   );
 }

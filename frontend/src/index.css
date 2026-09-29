@@ -18,5 +18,10 @@
 }
 
 .dark ::-webkit-scrollbar-thumb {
-  background: #334155; /* Tailwind slate-700 for Dark Mode */
+  background: #262848; /* Fortechz navy for Dark Mode */
+}
+
+html.dark body {
+  background: #0b0b19;
+  color-scheme: dark;
 }

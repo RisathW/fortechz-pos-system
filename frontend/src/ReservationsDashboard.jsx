@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { CalendarClock, CheckCircle, Trash2, Banknote, CreditCard, Search, Clock, CheckSquare } from 'lucide-react';
+import { CalendarClock, CheckCircle, Trash2, Banknote, CreditCard, Clock, AlertTriangle, Wallet, Phone, Eye, BookOpen, User } from 'lucide-react';
+import { Page, Card, StatCard, Badge, Tabs, Button, IconButton, SearchInput, Modal, ConfirmModal, Toast, EmptyRow, Avatar, Drawer, money, thCls, tdCls, trCls, cx } from './ui';
 
 export default function ReservationsDashboard({ user }) {
   const [reservations, setReservations] = useState([]);
@@ -12,6 +13,8 @@ export default function ReservationsDashboard({ user }) {
   const [showCompleteModal, setShowCompleteModal] = useState(false);
   const [selectedRes, setSelectedRes] = useState(null);
   const [paymentType, setPaymentType] = useState('Cash');
+  const [cancelTarget, setCancelTarget] = useState(null);
+  const [detail, setDetail] = useState(null);
 
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(''), 3000); };
 
@@ -30,9 +33,9 @@ export default function ReservationsDashboard({ user }) {
       const res = await fetch(`http://localhost:5000/api/reservations/${selectedRes.id}/pickup`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          balance_paid: balance, 
-          payment_type: paymentType, 
+        body: JSON.stringify({
+          balance_paid: balance,
+          payment_type: paymentType,
           username: user.username,
           ref_number: selectedRes.ref_number
         })
@@ -49,134 +52,188 @@ export default function ReservationsDashboard({ user }) {
   };
 
   const handleCancel = async (id) => {
-    if(!window.confirm("Are you sure you want to cancel this? The items will be returned to normal stock.")) return;
+    setCancelTarget(null);
     try {
       const res = await fetch(`http://localhost:5000/api/reservations/${id}`, { method: 'DELETE' });
       if (res.ok) { showToast("Reservation cancelled. Stock restocked."); fetchReservations(); }
     } catch (err) { showToast("Error cancelling."); }
   };
 
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const isOverdue = (r) => r.status === 'Pending Pickup' && new Date(r.pickup_date) < today;
+
   // FILTER: Apply search, then separate into the correct Tabs
-  const searchFiltered = reservations.filter(r => 
-    r.customer_name.toLowerCase().includes(search.toLowerCase()) || 
-    r.phone.includes(search) || 
+  const searchFiltered = reservations.filter(r =>
+    r.customer_name.toLowerCase().includes(search.toLowerCase()) ||
+    r.phone.includes(search) ||
     r.ref_number.toLowerCase().includes(search.toLowerCase())
   );
 
-  const displayedReservations = searchFiltered.filter(r => 
-    activeTab === 'Pending' ? r.status === 'Pending Pickup' : r.status === 'Picked Up'
+  const displayedReservations = searchFiltered.filter(r =>
+    activeTab === 'Pending' ? r.status === 'Pending Pickup' : activeTab === 'Overdue' ? isOverdue(r) : r.status === 'Picked Up'
   );
 
+  const pending = reservations.filter(r => r.status === 'Pending Pickup');
+  const overdue = reservations.filter(isOverdue);
+  const depositsHeld = pending.reduce((a, r) => a + (Number(r.advance_paid) || 0), 0);
+  const balanceDue = pending.reduce((a, r) => a + (Number(r.total_amount) - Number(r.advance_paid) || 0), 0);
+
   return (
-    <div className="p-8 h-full flex flex-col gap-6 overflow-y-auto bg-slate-50 dark:bg-slate-950 relative transition-colors">
-      
-      {toast && (
-        <div className="absolute top-6 left-1/2 -translate-x-1/2 bg-slate-800 text-white px-6 py-3 rounded-lg shadow-2xl z-50 font-bold border-l-4 border-emerald-500 animate-pulse">
-          {toast}
-        </div>
+    <Page>
+      <Toast message={toast} />
+
+      {cancelTarget && (
+        <ConfirmModal title="Cancel Pre-Order" icon={Trash2} confirmLabel="Cancel Pre-Order"
+          message={<>Cancel <b className="text-slate-900 dark:text-white">{cancelTarget.customer_name}</b>'s pre-order ({cancelTarget.ref_number})? The items will be returned to normal stock.</>}
+          onConfirm={() => handleCancel(cancelTarget.id)} onCancel={() => setCancelTarget(null)} />
       )}
+
+      {detail && (() => {
+        const bal = Number(detail.total_amount) - Number(detail.advance_paid);
+        const st = detail.status === 'Picked Up' ? 'Picked Up' : isOverdue(detail) ? 'Overdue' : 'Pending Pickup';
+        const Field = ({ label, value, tone }) => (
+          <div className="bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800 rounded-xl px-3.5 py-2.5">
+            <p className="text-[11px] text-slate-500">{label}</p>
+            <p className={cx('text-sm font-semibold', tone || 'text-slate-900 dark:text-white')}>{value}</p>
+          </div>
+        );
+        return (
+          <Drawer title="Pre-Order Details" subtitle={detail.ref_number} width="max-w-lg" onClose={() => setDetail(null)}
+            footer={detail.status === 'Pending Pickup' ? <>
+              <Button variant="ghost" className="text-red-500 hover:!bg-red-500/10" onClick={() => { setDetail(null); setCancelTarget(detail); }}><Trash2 size={15}/> Cancel Pre-Order</Button>
+              <Button className="flex-1" onClick={() => { setSelectedRes(detail); setPaymentType('Cash'); setShowCompleteModal(true); setDetail(null); }}><CheckCircle size={15}/> Complete Pickup</Button>
+            </> : null}>
+            <div className="rounded-2xl bg-gradient-to-br from-blue-600 to-violet-600 p-5 text-white mb-5">
+              <p className="text-xs opacity-80">Pre-Order</p>
+              <p className="text-xl font-bold font-mono">{detail.ref_number}</p>
+              <div className="flex items-center justify-between mt-3">
+                <span className="text-sm">{(detail.items || []).reduce((a, i) => a + (Number(i?.qty) || 0), 0)} items</span>
+                <span className="text-xs font-semibold bg-white/20 rounded-md px-2 py-0.5">{st}</span>
+              </div>
+            </div>
+            <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">Pre-Order Details</h4>
+            <div className="grid grid-cols-2 gap-2 mb-5">
+              <Field label="Created" value={new Date(detail.created_at).toLocaleDateString()} />
+              <Field label="Pickup Date" value={new Date(detail.pickup_date).toLocaleDateString()} tone={isOverdue(detail) ? 'text-red-500' : undefined} />
+              <Field label="Created By" value={detail.created_by || '—'} />
+              <Field label="Advance Paid Via" value={Number(detail.advance_paid) > 0 ? detail.payment_type : '—'} />
+            </div>
+            <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">Customer Details</h4>
+            <div className="grid grid-cols-2 gap-2 mb-5">
+              <Field label="Full Name" value={detail.customer_name} />
+              <Field label="Phone Number" value={detail.phone} />
+            </div>
+            <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">Reserved Items</h4>
+            <div className="rounded-xl border border-slate-200 dark:border-slate-800 divide-y divide-slate-100 dark:divide-slate-800 mb-5">
+              {(detail.items || []).filter(Boolean).map((i, idx) => (
+                <div key={idx} className="flex items-center gap-3 px-3.5 py-2.5">
+                  <span className="w-8 h-10 rounded-md bg-gradient-to-br from-blue-600 to-violet-600 flex items-center justify-center text-white shrink-0"><BookOpen size={13}/></span>
+                  <span className="flex-1 min-w-0 text-sm text-slate-900 dark:text-white truncate">{i.title}</span>
+                  <span className="text-xs text-slate-500">× {i.qty}</span>
+                  <span className="text-sm font-semibold text-slate-900 dark:text-white w-24 text-right">{money(i.subtotal)}</span>
+                </div>
+              ))}
+            </div>
+            <div className="space-y-1.5 text-sm">
+              <div className="flex justify-between text-slate-500"><span>Order Total</span><span className="text-slate-900 dark:text-white font-semibold">{money(detail.total_amount)}</span></div>
+              <div className="flex justify-between text-slate-500"><span>Advance Paid</span><span className="text-emerald-600 dark:text-emerald-400 font-semibold">- {money(detail.advance_paid)}</span></div>
+              <div className="flex justify-between pt-1.5 border-t border-slate-100 dark:border-slate-800"><span className="font-semibold text-slate-900 dark:text-white">{detail.status === 'Picked Up' ? 'Balance Collected' : 'Balance Due'}</span><span className="text-lg font-bold text-blue-600 dark:text-blue-400">{money(bal)}</span></div>
+            </div>
+          </Drawer>
+        );
+      })()}
 
       {showCompleteModal && selectedRes && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50">
-          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-96 p-6 border border-transparent dark:border-slate-700 transition-colors">
-            <h3 className="font-black text-xl mb-4 text-slate-800 dark:text-white border-b dark:border-slate-700 pb-2">Complete Pickup</h3>
-            <p className="text-sm font-bold text-slate-600 dark:text-slate-400 mb-2">Customer: <span className="text-black dark:text-white">{selectedRes.customer_name}</span></p>
-            <p className="text-sm font-bold text-slate-600 dark:text-slate-400 mb-4">Advance Paid: <span className="text-emerald-600 dark:text-emerald-400">LKR {Number(selectedRes.advance_paid).toFixed(2)}</span></p>
-            
-            <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/50 p-4 rounded-xl mb-6 transition-colors">
-               <p className="text-xs font-bold text-amber-700 dark:text-amber-500 uppercase tracking-wide mb-1">Remaining Balance Due</p>
-               <p className="text-3xl font-black text-amber-900 dark:text-amber-400">LKR {(selectedRes.total_amount - selectedRes.advance_paid).toFixed(2)}</p>
-            </div>
-
-            {(selectedRes.total_amount - selectedRes.advance_paid) > 0 && (
-              <div className="grid grid-cols-2 gap-2 mb-6">
-                <button onClick={() => setPaymentType('Cash')} className={`font-bold py-3 rounded-xl flex items-center justify-center gap-2 border-2 transition-colors ${paymentType === 'Cash' ? 'bg-emerald-50 dark:bg-emerald-900/30 border-emerald-500 text-emerald-700 dark:text-emerald-400' : 'border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'}`}><Banknote size={18}/> Cash</button>
-                <button onClick={() => setPaymentType('Card')} className={`font-bold py-3 rounded-xl flex items-center justify-center gap-2 border-2 transition-colors ${paymentType === 'Card' ? 'bg-blue-50 dark:bg-blue-900/30 border-blue-500 text-blue-700 dark:text-blue-400' : 'border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'}`}><CreditCard size={18}/> Card</button>
-              </div>
-            )}
-
-            <div className="flex gap-2">
-              <button onClick={() => setShowCompleteModal(false)} className="w-1/3 bg-slate-200 dark:bg-slate-800 font-bold py-3 rounded-xl text-slate-700 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-700 transition-colors">Cancel</button>
-              <button onClick={handleCompletePickup} className="w-2/3 bg-emerald-600 text-white font-black py-3 rounded-xl hover:bg-emerald-700 flex items-center justify-center gap-2 transition-colors">Confirm Pickup <CheckCircle size={18}/></button>
-            </div>
+        <Modal title="Complete Pickup" subtitle={selectedRes.ref_number} icon={CheckCircle} tone="green" onClose={() => setShowCompleteModal(false)}
+          footer={<>
+            <Button variant="secondary" className="flex-1" onClick={() => setShowCompleteModal(false)}>Cancel</Button>
+            <Button variant="success" className="flex-[2]" onClick={handleCompletePickup}>Confirm Pickup <CheckCircle size={16}/></Button>
+          </>}>
+          <div className="space-y-2 text-sm mb-4">
+            <div className="flex justify-between"><span className="text-slate-500">Customer</span><span className="font-semibold text-slate-900 dark:text-white">{selectedRes.customer_name}</span></div>
+            <div className="flex justify-between"><span className="text-slate-500">Order total</span><span className="font-semibold text-slate-900 dark:text-white">{money(selectedRes.total_amount)}</span></div>
+            <div className="flex justify-between"><span className="text-slate-500">Advance paid</span><span className="font-semibold text-emerald-600 dark:text-emerald-400">{money(selectedRes.advance_paid)}</span></div>
           </div>
-        </div>
+
+          <div className="bg-amber-500/10 border border-amber-500/30 p-4 rounded-xl mb-4">
+             <p className="text-xs font-semibold text-amber-600 dark:text-amber-400 uppercase tracking-wide mb-1">Remaining Balance Due</p>
+             <p className="text-2xl font-bold text-amber-700 dark:text-amber-300">{money(selectedRes.total_amount - selectedRes.advance_paid)}</p>
+          </div>
+
+          {(selectedRes.total_amount - selectedRes.advance_paid) > 0 && (
+            <div className="grid grid-cols-2 gap-2">
+              {[['Cash', Banknote], ['Card', CreditCard]].map(([t, Icon]) => (
+                <button key={t} onClick={() => setPaymentType(t)} className={cx('font-semibold text-sm py-3 rounded-xl flex items-center justify-center gap-2 border-2 transition-colors',
+                  paymentType === t ? 'border-blue-600 bg-blue-600/10 text-blue-600 dark:text-white' : 'border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:border-slate-300 dark:hover:border-slate-600')}>
+                  <Icon size={17}/> {t}
+                </button>
+              ))}
+            </div>
+          )}
+        </Modal>
       )}
 
-      <div className="flex justify-between items-end">
-        <div>
-          <h1 className="text-3xl font-black text-slate-800 dark:text-white flex items-center gap-3">
-            <CalendarClock className="text-blue-600 dark:text-blue-400" size={32} /> Pre-Orders & Layaways
-          </h1>
-          <p className="text-slate-500 dark:text-slate-400 font-medium">Track separated items and customer deposits.</p>
-        </div>
-        <div className="relative w-80">
-          <Search className="absolute left-3 top-3.5 text-slate-400" size={18} />
-          <input type="text" placeholder="Search Customer or Ref..." value={search} onChange={(e) => setSearch(e.target.value)} className="w-full pl-10 p-3 border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-white rounded-xl focus:ring-2 focus:ring-blue-500 outline-none font-medium shadow-sm transition-colors" />
-        </div>
+      <div className="grid grid-cols-2 xl:grid-cols-4 gap-5">
+        <StatCard label="Active Pre-Orders" sub="Waiting for pickup" value={pending.length} icon={CalendarClock} bars={false} />
+        <StatCard label="Overdue Pickups" sub="Past pickup date" value={overdue.length} icon={AlertTriangle} tone="red" bars={false} />
+        <StatCard label="Deposits Held" sub="Advance payments" value={money(depositsHeld)} icon={Wallet} tone="green" bars={false} />
+        <StatCard label="Balance to Collect" sub="On active pre-orders" value={money(balanceDue)} icon={Banknote} tone="amber" bars={false} />
       </div>
 
-      {/* TABS TO SWITCH VIEWS */}
-      <div className="flex gap-4">
-        <button 
-          onClick={() => setActiveTab('Pending')} 
-          className={`flex items-center gap-2 px-6 py-3 rounded-t-xl font-bold transition-colors ${activeTab === 'Pending' ? 'bg-white dark:bg-slate-900 text-blue-700 dark:text-blue-400 border-t-2 border-x-2 border-blue-500 shadow-sm z-10 -mb-[1px]' : 'bg-slate-200 dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:bg-slate-300 dark:hover:bg-slate-700'}`}
-        >
-          <Clock size={18}/> Active Pre-Orders
-        </button>
-        <button 
-          onClick={() => setActiveTab('Picked Up')} 
-          className={`flex items-center gap-2 px-6 py-3 rounded-t-xl font-bold transition-colors ${activeTab === 'Picked Up' ? 'bg-white dark:bg-slate-900 text-blue-700 dark:text-blue-400 border-t-2 border-x-2 border-blue-500 shadow-sm z-10 -mb-[1px]' : 'bg-slate-200 dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:bg-slate-300 dark:hover:bg-slate-700'}`}
-        >
-          <CheckSquare size={18}/> Completed History
-        </button>
-      </div>
-
-      <div className="bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-700 rounded-b-2xl rounded-tr-2xl shadow-sm overflow-hidden flex-1 relative -top-[1px] transition-colors">
-        <table className="w-full text-left text-sm">
-          <thead className="bg-slate-50 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 sticky top-0 text-slate-700 dark:text-slate-300">
+      <Card className="overflow-hidden">
+        <div className="flex flex-wrap items-center justify-between gap-3 p-5">
+          <Tabs active={activeTab} onChange={setActiveTab} tabs={[
+            { key: 'Pending', label: 'Active Pre-Orders', count: pending.length },
+            { key: 'Overdue', label: 'Overdue', count: overdue.length },
+            { key: 'Picked Up', label: 'Completed History', count: reservations.filter(r => r.status === 'Picked Up').length },
+          ]} />
+          <SearchInput value={search} onChange={setSearch} placeholder="Search Customer, Phone or Ref..." className="w-72" />
+        </div>
+        <table className="w-full text-left">
+          <thead>
             <tr>
-              <th className="p-4 font-bold">Customer & Ref</th>
-              <th className="p-4 font-bold">Pickup Date</th>
-              <th className="p-4 font-bold">Financials</th>
-              <th className="p-4 font-bold">Status</th>
-              <th className="p-4 font-bold text-center">Actions</th>
+              <th className={thCls}>Customer & Ref</th>
+              <th className={thCls}>Pickup Date</th>
+              <th className={thCls}>Financials</th>
+              <th className={thCls}>Status</th>
+              <th className={cx(thCls, 'text-right')}>Actions</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-            {displayedReservations.length === 0 && <tr><td colSpan="5" className="p-8 text-center text-slate-500 dark:text-slate-400 font-bold">No {activeTab === 'Pending' ? 'active' : 'completed'} reservations found.</td></tr>}
+          <tbody>
+            {displayedReservations.length === 0 && <EmptyRow colSpan={5}>No {activeTab === 'Picked Up' ? 'completed' : activeTab === 'Overdue' ? 'overdue' : 'active'} reservations found.</EmptyRow>}
             {displayedReservations.map(r => {
               const balance = parseFloat(r.total_amount) - parseFloat(r.advance_paid);
               return (
-                <tr key={r.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
-                  <td className="p-4">
-                    <p className="font-black text-slate-800 dark:text-white text-base">{r.customer_name}</p>
-                    <p className="text-xs text-slate-500 dark:text-slate-400 font-bold mb-1">{r.phone}</p>
-                    <span className="text-[10px] font-mono bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700">{r.ref_number}</span>
+                <tr key={r.id} className={trCls}>
+                  <td className={tdCls}>
+                    <button onClick={() => setDetail(r)} className="flex items-center gap-3 text-left">
+                      <Avatar name={r.customer_name} />
+                      <div>
+                        <p className="font-semibold text-slate-900 dark:text-white">{r.customer_name}</p>
+                        <p className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1"><Phone size={11}/>{r.phone} · <span className="font-mono">{r.ref_number}</span></p>
+                      </div>
+                    </button>
                   </td>
-                  <td className="p-4">
-                    <span className={`font-black px-3 py-1 rounded-full text-xs ${new Date(r.pickup_date) < new Date() && r.status === 'Pending Pickup' ? 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 border border-red-200 dark:border-red-800' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700'}`}>
-                      {new Date(r.pickup_date).toLocaleDateString()}
-                    </span>
+                  <td className={tdCls}>
+                    <Badge tone={isOverdue(r) ? 'red' : 'slate'}><Clock size={11}/> {new Date(r.pickup_date).toLocaleDateString()}</Badge>
                   </td>
-                  <td className="p-4">
-                    <p className="text-xs font-bold text-slate-500 dark:text-slate-400">Total: LKR {Number(r.total_amount).toFixed(2)}</p>
-                    <p className="text-xs font-bold text-emerald-600 dark:text-emerald-400">Advance: LKR {Number(r.advance_paid).toFixed(2)}</p>
-                    {balance > 0 && r.status === 'Pending Pickup' && <p className="text-sm font-black text-amber-600 dark:text-amber-400 mt-1">Due: LKR {balance.toFixed(2)}</p>}
+                  <td className={tdCls}>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">Total {money(r.total_amount)}</p>
+                    <p className="text-xs text-emerald-600 dark:text-emerald-400">Advance {money(r.advance_paid)}</p>
+                    {balance > 0 && r.status === 'Pending Pickup' && <p className="text-sm font-semibold text-amber-600 dark:text-amber-400 mt-0.5">Due {money(balance)}</p>}
                   </td>
-                  <td className="p-4">
-                    <span className={`px-3 py-1 rounded-full text-xs font-black uppercase tracking-wide border ${r.status === 'Picked Up' ? 'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800/50' : 'bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-800/50'}`}>
-                      {r.status}
-                    </span>
+                  <td className={tdCls}>
+                    <Badge tone={r.status === 'Picked Up' ? 'green' : isOverdue(r) ? 'red' : 'amber'}>{isOverdue(r) ? 'Overdue' : r.status}</Badge>
                   </td>
-                  <td className="p-4 text-center flex items-center justify-center gap-2">
+                  <td className={cx(tdCls, 'text-right whitespace-nowrap')}>
                     {r.status === 'Pending Pickup' ? (
-                      <>
-                        <button onClick={() => { setSelectedRes(r); setShowCompleteModal(true); }} className="bg-blue-600 text-white font-bold px-3 py-2 rounded-lg hover:bg-blue-700 text-xs shadow-sm transition-colors">Complete Pickup</button>
-                        <button onClick={() => handleCancel(r.id)} className="bg-slate-100 dark:bg-slate-800 text-red-500 dark:text-red-400 p-2 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/30 hover:border-red-200 dark:hover:border-red-800/50 border border-transparent transition-colors"><Trash2 size={16}/></button>
-                      </>
+                      <div className="inline-flex items-center gap-1">
+                        <IconButton onClick={() => setDetail(r)} title="View details"><Eye size={16}/></IconButton>
+                        <Button size="sm" onClick={() => { setSelectedRes(r); setPaymentType('Cash'); setShowCompleteModal(true); }}>Complete Pickup</Button>
+                        <IconButton tone="red" onClick={() => setCancelTarget(r)} title="Cancel pre-order"><Trash2 size={16}/></IconButton>
+                      </div>
                     ) : (
-                      <span className="text-emerald-500 dark:text-emerald-400 font-bold text-sm flex items-center gap-1"><CheckCircle size={16}/> Handed Over</span>
+                      <span className="inline-flex items-center gap-2"><IconButton onClick={() => setDetail(r)} title="View details"><Eye size={16}/></IconButton><span className="text-emerald-600 dark:text-emerald-400 font-semibold text-xs inline-flex items-center gap-1"><CheckCircle size={14}/> Handed Over</span></span>
                     )}
                   </td>
                 </tr>
@@ -184,7 +241,7 @@ export default function ReservationsDashboard({ user }) {
             })}
           </tbody>
         </table>
-      </div>
-    </div>
+      </Card>
+    </Page>
   );
 }

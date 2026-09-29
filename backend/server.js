@@ -110,6 +110,10 @@ async function initializeDatabase() {
       -- ✅ NEW: TABLES FOR RESERVATIONS / LAYAWAYS
       CREATE TABLE IF NOT EXISTS Reservations (id SERIAL PRIMARY KEY, ref_number VARCHAR(100) UNIQUE, customer_name VARCHAR(255), phone VARCHAR(50), pickup_date DATE, total_amount DECIMAL(10,2), advance_paid DECIMAL(10,2), payment_type VARCHAR(50), status VARCHAR(50) DEFAULT 'Pending Pickup', created_by VARCHAR(100), created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);
       CREATE TABLE IF NOT EXISTS Reservation_Items (id SERIAL PRIMARY KEY, reservation_id INTEGER REFERENCES Reservations(id) ON DELETE CASCADE, book_id INTEGER REFERENCES Books(id), title VARCHAR(255), quantity INTEGER, unit_price DECIMAL(10,2), subtotal DECIMAL(10,2));
+
+      -- ✅ NEW: STAFF ATTENDANCE (clock in / clock out) & PRODUCT CATEGORIES
+      CREATE TABLE IF NOT EXISTS Attendance (id SERIAL PRIMARY KEY, username VARCHAR(100), clock_in TIMESTAMP DEFAULT CURRENT_TIMESTAMP, clock_out TIMESTAMP, notes TEXT);
+      CREATE TABLE IF NOT EXISTS Categories (id SERIAL PRIMARY KEY, name VARCHAR(100) UNIQUE, description TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);
     `);
     console.log('✅ All Tables Ready!');
     
@@ -121,7 +125,18 @@ async function initializeDatabase() {
       "UPDATE Sale_Items SET original_qty = quantity WHERE original_qty IS NULL",
       "ALTER TABLE Cash_Drawer DROP CONSTRAINT IF EXISTS cash_drawer_shift_date_key",
       "ALTER TABLE Cash_Drawer ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'OPEN'",
-      "ALTER TABLE Cash_Drawer ADD COLUMN IF NOT EXISTS closed_at TIMESTAMP"
+      "ALTER TABLE Cash_Drawer ADD COLUMN IF NOT EXISTS closed_at TIMESTAMP",
+      "ALTER TABLE Users ADD COLUMN IF NOT EXISTS full_name VARCHAR(255)",
+      "ALTER TABLE Users ADD COLUMN IF NOT EXISTS phone VARCHAR(50)",
+      "ALTER TABLE Users ADD COLUMN IF NOT EXISTS email VARCHAR(150)",
+      "ALTER TABLE Users ADD COLUMN IF NOT EXISTS address TEXT",
+      "ALTER TABLE Users ADD COLUMN IF NOT EXISTS salary DECIMAL(10,2)",
+      "ALTER TABLE Users ADD COLUMN IF NOT EXISTS shift_start VARCHAR(10)",
+      "ALTER TABLE Users ADD COLUMN IF NOT EXISTS shift_end VARCHAR(10)",
+      "ALTER TABLE Users ADD COLUMN IF NOT EXISTS joined_date DATE",
+      "ALTER TABLE Users ADD COLUMN IF NOT EXISTS notes TEXT",
+      "ALTER TABLE Users ADD COLUMN IF NOT EXISTS permissions TEXT",
+      "INSERT INTO Categories (name) VALUES ('Reading Books'), ('Stationery'), ('Exercise Books'), ('Water Bottles'), ('Trophies'), ('Tennis Balls'), ('Other') ON CONFLICT (name) DO NOTHING"
     ];
 
     for (let query of patches) {
@@ -171,7 +186,10 @@ app.post('/api/login', async (req, res) => {
       
       await pool.query('UPDATE Users SET last_login = CURRENT_TIMESTAMP WHERE username = $1', [req.body.username]);
       writeAuditLog(req.body.username, 'LOGIN', 'User logged in successfully');
-      res.json({ success: true, user: { username: result.rows[0].username, role: result.rows[0].role } });
+      const u = result.rows[0];
+      let permissions = null;
+      try { permissions = u.permissions ? JSON.parse(u.permissions) : null; } catch (e) { permissions = null; }
+      res.json({ success: true, user: { username: u.username, role: u.role, full_name: u.full_name, permissions } });
     } else {
       writeAuditLog(req.body.username, 'FAILED_LOGIN', 'Attempted login with invalid credentials');
       res.status(401).json({ success: false, message: 'Invalid credentials' });
@@ -196,7 +214,7 @@ app.post('/api/signup', async (req, res) => {
 
 app.get('/api/users', async (req, res) => {
   try { 
-    const result = await pool.query('SELECT username, role, is_approved, last_login FROM Users');
+    const result = await pool.query('SELECT username, role, is_approved, last_login, full_name, phone, email, address, salary, shift_start, shift_end, joined_date, notes, permissions FROM Users ORDER BY username ASC');
     res.json(result.rows); 
   } catch (err) { 
     res.status(500).json({ error: err.message }); 
@@ -221,7 +239,8 @@ app.put('/api/users/:username/username', async (req, res) => {
     const check = await pool.query('SELECT * FROM Users WHERE username = $1', [newUsername]);
     if (check.rows.length > 0) return res.status(400).json({ error: 'Username already taken.' });
     
-    await pool.query('UPDATE Users SET username = $1 WHERE username = $2', [newUsername, oldUsername]); 
+    await pool.query('UPDATE Users SET username = $1 WHERE username = $2', [newUsername, oldUsername]);
+    await pool.query('UPDATE Attendance SET username = $1 WHERE username = $2', [newUsername, oldUsername]);
     writeAuditLog('Admin', 'USER_UPDATE', `Changed username from ${oldUsername} to ${newUsername}`);
     res.json({ success: true }); 
   } catch (err) { 
@@ -758,6 +777,182 @@ app.delete('/api/reservations/:id', async (req, res) => {
     res.status(500).json({ error: err.message });
   } finally { 
     client.release(); 
+  }
+});
+
+// ==========================================
+// 9. STAFF PROFILES, ACCESS & ATTENDANCE
+// ==========================================
+app.post('/api/users', async (req, res) => {
+  const { username, password, role = 'Cashier', full_name, phone, email, address, salary, shift_start, shift_end, joined_date, notes, permissions, created_by } = req.body;
+  try {
+    if (!username || !password) return res.status(400).json({ error: 'Username and password are required.' });
+    const existing = await pool.query('SELECT 1 FROM Users WHERE username = $1', [username]);
+    if (existing.rows.length > 0) return res.status(400).json({ error: 'Username already taken.' });
+
+    await pool.query(
+      `INSERT INTO Users (username, password, role, is_approved, full_name, phone, email, address, salary, shift_start, shift_end, joined_date, notes, permissions)
+       VALUES ($1, $2, $3, TRUE, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+      [username, password, role, full_name || null, phone || null, email || null, address || null, salary || null, shift_start || null, shift_end || null, joined_date || null, notes || null, permissions ? JSON.stringify(permissions) : null]
+    );
+    writeAuditLog(created_by || 'Admin', 'USER_CREATE', `Created ${role} account for ${username}`);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/users/:username/profile', async (req, res) => {
+  const { full_name, phone, email, address, salary, shift_start, shift_end, joined_date, notes } = req.body;
+  try {
+    await pool.query(
+      `UPDATE Users SET full_name = $1, phone = $2, email = $3, address = $4, salary = $5, shift_start = $6, shift_end = $7, joined_date = $8, notes = $9 WHERE username = $10`,
+      [full_name || null, phone || null, email || null, address || null, salary || null, shift_start || null, shift_end || null, joined_date || null, notes || null, req.params.username]
+    );
+    writeAuditLog('Admin', 'PROFILE_UPDATE', `Updated profile for ${req.params.username}`);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/users/:username/permissions', async (req, res) => {
+  try {
+    const { permissions } = req.body; // array of page keys, or null to use the role default
+    await pool.query('UPDATE Users SET permissions = $1 WHERE username = $2', [Array.isArray(permissions) ? JSON.stringify(permissions) : null, req.params.username]);
+    writeAuditLog('Admin', 'ACCESS_CHANGE', `Updated page access for ${req.params.username}: ${Array.isArray(permissions) ? permissions.join(', ') : 'role default'}`);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/attendance/status', async (req, res) => {
+  try {
+    const result = await pool.query('SELECT * FROM Attendance WHERE username = $1 AND clock_out IS NULL ORDER BY clock_in DESC LIMIT 1', [req.query.username]);
+    res.json({ clockedIn: result.rows.length > 0, record: result.rows[0] || null });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/attendance/clock-in', async (req, res) => {
+  try {
+    const open = await pool.query('SELECT id FROM Attendance WHERE username = $1 AND clock_out IS NULL', [req.body.username]);
+    if (open.rows.length > 0) return res.status(400).json({ error: 'Already clocked in.' });
+    await pool.query('INSERT INTO Attendance (username, notes) VALUES ($1, $2)', [req.body.username, req.body.notes || null]);
+    writeAuditLog(req.body.username, 'CLOCK_IN', 'Staff clocked in');
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/attendance/clock-out', async (req, res) => {
+  try {
+    const result = await pool.query('UPDATE Attendance SET clock_out = CURRENT_TIMESTAMP WHERE username = $1 AND clock_out IS NULL RETURNING id', [req.body.username]);
+    if (result.rows.length === 0) return res.status(400).json({ error: 'Not clocked in.' });
+    writeAuditLog(req.body.by || req.body.username, 'CLOCK_OUT', `Clocked out ${req.body.username}`);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/attendance', async (req, res) => {
+  const { username, start, end } = req.query;
+  const where = []; const params = [];
+  if (username) { params.push(username); where.push(`username = $${params.length}`); }
+  if (start) { params.push(start); where.push(`DATE(clock_in) >= $${params.length}`); }
+  if (end) { params.push(end); where.push(`DATE(clock_in) <= $${params.length}`); }
+  try {
+    const result = await pool.query(
+      `SELECT *, EXTRACT(EPOCH FROM (COALESCE(clock_out, CURRENT_TIMESTAMP) - clock_in)) / 3600 AS hours
+       FROM Attendance ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY clock_in DESC LIMIT 1000`, params);
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Per-staff performance: sales, refunds and hours for a date range (defaults to this month)
+app.get('/api/reports/staff', async (req, res) => {
+  const start = req.query.start || new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10);
+  const end = req.query.end || new Date().toISOString().slice(0, 10);
+  try {
+    const users = await pool.query('SELECT username, role, full_name FROM Users ORDER BY username');
+    const sales = await pool.query(`SELECT created_by, COUNT(*) AS invoices, COALESCE(SUM(total_amount), 0) AS revenue FROM Sales WHERE DATE(created_at) BETWEEN $1 AND $2 GROUP BY created_by`, [start, end]);
+    const returns = await pool.query(`SELECT created_by, COUNT(*) AS returns, COALESCE(SUM(amount), 0) AS refunded FROM Returns WHERE DATE(created_at) BETWEEN $1 AND $2 GROUP BY created_by`, [start, end]);
+    const hours = await pool.query(`SELECT username, COUNT(*) AS shifts, COALESCE(SUM(EXTRACT(EPOCH FROM (COALESCE(clock_out, CURRENT_TIMESTAMP) - clock_in)) / 3600), 0) AS hours FROM Attendance WHERE DATE(clock_in) BETWEEN $1 AND $2 GROUP BY username`, [start, end]);
+    const daily = await pool.query(`SELECT DATE(clock_in) AS day, COUNT(DISTINCT username) AS staff FROM Attendance WHERE DATE(clock_in) BETWEEN $1 AND $2 GROUP BY DATE(clock_in) ORDER BY day`, [start, end]);
+
+    const by = (rows, key) => Object.fromEntries(rows.map(r => [r[key], r]));
+    const s = by(sales.rows, 'created_by'), r = by(returns.rows, 'created_by'), h = by(hours.rows, 'username');
+    const staff = users.rows.map(u => ({
+      username: u.username, role: u.role, full_name: u.full_name,
+      invoices: Number(s[u.username]?.invoices || 0), revenue: Number(s[u.username]?.revenue || 0),
+      returns: Number(r[u.username]?.returns || 0), refunded: Number(r[u.username]?.refunded || 0),
+      shifts: Number(h[u.username]?.shifts || 0), hours: Number(h[u.username]?.hours || 0),
+    }));
+    res.json({ start, end, staff, daily: daily.rows });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ==========================================
+// 10. INVENTORY EDITING & CATEGORIES
+// ==========================================
+app.put('/api/books/:id', async (req, res) => {
+  const { title, author_name, isbn_barcode, category, retail_price, cost_price, location, username } = req.body;
+  try {
+    await pool.query(
+      'UPDATE Books SET title = $1, author_name = $2, isbn_barcode = $3, category = $4, retail_price = $5, cost_price = $6, location = $7 WHERE id = $8',
+      [title, author_name, isbn_barcode, category, retail_price, cost_price || 0, location || 'Unassigned', req.params.id]
+    );
+    writeAuditLog(username || 'System', 'EDIT_BOOK', `Edited item ID ${req.params.id}: ${title} (Retail LKR ${retail_price})`);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/categories', async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT c.id, c.name, c.description, COUNT(b.id) AS item_count
+      FROM Categories c LEFT JOIN Books b ON b.category = c.name
+      GROUP BY c.id ORDER BY c.id ASC`);
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/categories', async (req, res) => {
+  try {
+    const name = (req.body.name || '').trim();
+    if (!name) return res.status(400).json({ error: 'Category name is required.' });
+    await pool.query('INSERT INTO Categories (name, description) VALUES ($1, $2)', [name, req.body.description || null]);
+    writeAuditLog('Admin', 'ADD_CATEGORY', `Added category: ${name}`);
+    res.json({ success: true });
+  } catch (err) {
+    if (err.code === '23505') return res.status(400).json({ error: 'That category already exists.' });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/categories/:id', async (req, res) => {
+  try {
+    const cat = await pool.query('SELECT name FROM Categories WHERE id = $1', [req.params.id]);
+    if (cat.rows.length === 0) return res.status(404).json({ error: 'Category not found.' });
+    const used = await pool.query('SELECT COUNT(*) FROM Books WHERE category = $1', [cat.rows[0].name]);
+    if (parseInt(used.rows[0].count) > 0) return res.status(400).json({ error: `Cannot delete: ${used.rows[0].count} items still use this category.` });
+    await pool.query('DELETE FROM Categories WHERE id = $1', [req.params.id]);
+    writeAuditLog('Admin', 'DELETE_CATEGORY', `Deleted category: ${cat.rows[0].name}`);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 

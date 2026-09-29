@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Receipt, Search, Printer, RotateCcw, X, AlertCircle, Eye } from 'lucide-react';
+import { Receipt, Printer, RotateCcw, AlertCircle, Eye, CalendarDays, Wallet } from 'lucide-react';
+import { Page, Card, StatCard, Badge, Tabs, Button, IconButton, SearchInput, Modal, Toast, EmptyRow, Avatar, money, thCls, tdCls, trCls, cx } from './ui';
 
 export default function SalesHistory({ user }) {
   const [sales, setSales] = useState([]);
@@ -102,209 +103,170 @@ export default function SalesHistory({ user }) {
     }
   };
 
+  const [payFilter, setPayFilter] = useState('All');
+  const payKind = (s) => (s.payment_type || '').startsWith('Split') ? 'Split' : s.payment_type;
+  const visibleSales = filteredSales.filter(s => payFilter === 'All' || (payFilter === 'Returned' ? Number(s.refunded_amount) > 0 : payKind(s) === payFilter));
+
+  const netRevenue = sales.reduce((a, s) => a + (Number(s.total_amount) || 0), 0);
+  const refundedTotal = sales.reduce((a, s) => a + (Number(s.refunded_amount) || 0), 0);
+  const todayStr = new Date().toDateString();
+  const todaySales = sales.filter(s => new Date(s.created_at).toDateString() === todayStr);
+
   return (
     <>
-      <div className="p-8 h-full flex flex-col gap-6 overflow-hidden bg-slate-50 dark:bg-slate-950 print:hidden relative transition-colors">
-        
-        {toast && (
-          <div className={`fixed top-6 right-6 text-white px-6 py-4 rounded-xl shadow-2xl z-50 font-bold flex items-center gap-3 border-l-4 ${toast.includes('Error') ? 'bg-red-600 dark:bg-red-700 border-red-900' : 'bg-slate-800 dark:bg-slate-900 border-emerald-500'} animate-pulse`}>
-            {toast.includes('Error') && <AlertCircle size={24} />}
-            {toast}
-          </div>
-        )}
+      <Page>
+        <Toast message={toast} />
 
         {/* --- VIEW ITEMS MODAL (Original vs Returned Columns) --- */}
         {viewSale && (
-          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50">
-            <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-[750px] max-h-[85vh] flex flex-col overflow-hidden border border-slate-200 dark:border-slate-700">
-              <div className="flex justify-between items-center p-5 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50">
-                <div>
-                  <h3 className="font-black text-xl text-slate-800 dark:text-white flex items-center gap-2">
-                    <Receipt className="text-blue-500" size={24} /> Invoice Details
-                  </h3>
-                  <p className="text-sm font-mono text-slate-500 dark:text-slate-400 mt-1">{viewSale.invoice_number}</p>
-                </div>
-                <button onClick={() => setViewSale(null)} className="text-slate-400 hover:text-red-500 bg-slate-100 dark:bg-slate-800 p-2 rounded-lg transition-colors"><X size={24} /></button>
-              </div>
-              
-              <div className="p-5 overflow-y-auto bg-white dark:bg-slate-900">
-                <table className="w-full text-left border-collapse rounded-xl overflow-hidden shadow-sm border border-slate-200 dark:border-slate-700">
-                  <thead className="bg-slate-100 dark:bg-slate-800">
-                    <tr>
-                      <th className="p-3 font-bold text-slate-700 dark:text-slate-300 text-sm">Item Name</th>
-                      <th className="p-3 text-center font-bold text-slate-700 dark:text-slate-300 text-sm border-l border-slate-200 dark:border-slate-700 bg-slate-200/50 dark:bg-slate-700/50">Purchased (Orig)</th>
-                      <th className="p-3 text-center font-bold text-red-600 dark:text-red-400 text-sm bg-red-50/50 dark:bg-red-900/20">Returned</th>
-                      <th className="p-3 text-center font-black text-emerald-600 dark:text-emerald-400 text-sm border-r border-slate-200 dark:border-slate-700 bg-emerald-50/50 dark:bg-emerald-900/20">Remaining</th>
-                      <th className="p-3 text-right font-bold text-slate-700 dark:text-slate-300 text-sm">Unit Price</th>
-                      <th className="p-3 text-right font-bold text-slate-700 dark:text-slate-300 text-sm">Net Subtotal</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 dark:divide-slate-700/50">
-                    {viewSale.items.filter(i=>i && i.title).map((item, idx) => {
-                      const originalQty = item.original_qty || item.qty; 
-                      const returnedQty = originalQty - item.qty;
-                      return (
-                        <tr key={idx} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
-                          <td className="p-3 text-sm font-bold text-slate-800 dark:text-white">
-                             {item.title} 
-                             {item.qty === 0 && <span className="ml-2 text-[10px] bg-red-100 text-red-600 px-2 py-0.5 rounded uppercase">Fully Returned</span>}
-                          </td>
-                          <td className="p-3 text-center text-sm font-bold text-slate-500 dark:text-slate-400 border-l border-slate-100 dark:border-slate-700/50">
-                            {originalQty}
-                          </td>
-                          <td className="p-3 text-center text-sm font-bold text-red-500 dark:text-red-400">
-                            {returnedQty > 0 ? returnedQty : '-'}
-                          </td>
-                          <td className="p-3 text-center text-sm font-black text-emerald-600 dark:text-emerald-400 border-r border-slate-100 dark:border-slate-700/50">
-                            {item.qty}
-                          </td>
-                          <td className="p-3 text-right text-sm text-slate-500 dark:text-slate-400">
-                            {Number(item.price || (item.subtotal / (item.qty || 1))).toFixed(2)}
-                          </td>
-                          <td className="p-3 text-right text-sm font-black text-slate-800 dark:text-white">
-                            {Number(item.subtotal || 0).toFixed(2)}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
+          <Modal title="Invoice Details" subtitle={viewSale.invoice_number} icon={Receipt} width="max-w-3xl" onClose={() => setViewSale(null)}>
+            <div className="rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden">
+              <table className="w-full text-left">
+                <thead className="bg-slate-50 dark:bg-slate-950">
+                  <tr>
+                    <th className={thCls}>Item Name</th>
+                    <th className={cx(thCls, 'text-center')}>Purchased</th>
+                    <th className={cx(thCls, 'text-center !text-red-500')}>Returned</th>
+                    <th className={cx(thCls, 'text-center !text-emerald-500')}>Remaining</th>
+                    <th className={cx(thCls, 'text-right')}>Unit Price</th>
+                    <th className={cx(thCls, 'text-right')}>Net Subtotal</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {viewSale.items.filter(i=>i && i.title).map((item, idx) => {
+                    const originalQty = item.original_qty || item.qty;
+                    const returnedQty = originalQty - item.qty;
+                    return (
+                      <tr key={idx} className={trCls}>
+                        <td className={cx(tdCls, 'font-semibold text-slate-900 dark:text-white')}>
+                           {item.title}
+                           {item.qty === 0 && <Badge tone="red" className="ml-2">Fully Returned</Badge>}
+                        </td>
+                        <td className={cx(tdCls, 'text-center')}>{originalQty}</td>
+                        <td className={cx(tdCls, 'text-center text-red-500 dark:text-red-400 font-semibold')}>{returnedQty > 0 ? returnedQty : '-'}</td>
+                        <td className={cx(tdCls, 'text-center text-emerald-600 dark:text-emerald-400 font-semibold')}>{item.qty}</td>
+                        <td className={cx(tdCls, 'text-right')}>{Number(item.price || (item.subtotal / (item.qty || 1))).toFixed(2)}</td>
+                        <td className={cx(tdCls, 'text-right font-semibold text-slate-900 dark:text-white')}>{Number(item.subtotal || 0).toFixed(2)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
-          </div>
+          </Modal>
         )}
 
         {/* --- RETURN MODAL --- */}
         {activeReturn && (
-          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50">
-            <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-[600px] overflow-hidden flex flex-col max-h-[90vh] border border-transparent dark:border-slate-700 transition-colors">
-              <div className="bg-slate-800 dark:bg-slate-950 text-white p-5 flex justify-between items-center transition-colors">
-                <div>
-                  <h3 className="font-black text-xl flex items-center gap-2"><RotateCcw size={20}/> Process Return</h3>
-                  <p className="text-slate-300 text-sm font-mono mt-1">Invoice: {activeReturn.invoice_number}</p>
+          <Modal title="Process Return" subtitle={`Invoice: ${activeReturn.invoice_number}`} icon={RotateCcw} tone="red" width="max-w-2xl" onClose={() => setActiveReturn(null)}
+            footer={
+              <div className="w-full">
+                <div className="flex justify-between items-center mb-4">
+                  <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Total Refund Amount</span>
+                  <span className="font-bold text-2xl text-red-600 dark:text-red-400">{money(calculateTotalRefund())}</span>
                 </div>
-                <button onClick={() => setActiveReturn(null)} className="text-slate-400 hover:text-white transition-colors"><X size={24}/></button>
+                <div className="flex gap-2">
+                  <Button variant="secondary" size="lg" className="flex-1" onClick={() => setActiveReturn(null)}>Cancel</Button>
+                  <Button variant="danger" size="lg" className="flex-1" onClick={processReturn}><RotateCcw size={16}/> Confirm & Restock</Button>
+                </div>
               </div>
-
-              <div className="p-6 overflow-y-auto bg-slate-50 dark:bg-slate-900/50 transition-colors">
-                <table className="w-full text-left bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden transition-colors">
-                  <thead className="bg-slate-100 dark:bg-slate-700 border-b border-slate-200 dark:border-slate-600 transition-colors">
-                    <tr>
-                      <th className="p-3 font-bold text-slate-700 dark:text-slate-200 text-sm">Item Name</th>
-                      <th className="p-3 font-bold text-slate-700 dark:text-slate-200 text-sm text-center">Remaining</th>
-                      <th className="p-3 font-bold text-slate-700 dark:text-slate-200 text-sm text-center">Return Qty</th>
-                      <th className="p-3 font-bold text-slate-700 dark:text-slate-200 text-sm text-right">Refund</th>
+            }>
+            <div className="rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden">
+              <table className="w-full text-left">
+                <thead className="bg-slate-50 dark:bg-slate-950">
+                  <tr>
+                    <th className={thCls}>Item Name</th>
+                    <th className={cx(thCls, 'text-center')}>Remaining</th>
+                    <th className={cx(thCls, 'text-center')}>Return Qty</th>
+                    <th className={cx(thCls, 'text-right')}>Refund</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {returnItems.map((item, idx) => (
+                    <tr key={idx} className={trCls}>
+                      <td className={cx(tdCls, 'font-semibold text-slate-900 dark:text-white')}>{item.title || 'Unknown Item'}</td>
+                      <td className={cx(tdCls, 'text-center')}>{item.qty}</td>
+                      <td className={tdCls}>
+                        <div className="flex items-center justify-center gap-3">
+                          <button onClick={() => updateReturnQty(idx, -1)} className="w-7 h-7 rounded-md border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-blue-500 font-bold">-</button>
+                          <span className="font-semibold w-4 text-center text-slate-900 dark:text-white">{item.returnQty}</span>
+                          <button onClick={() => updateReturnQty(idx, 1)} className="w-7 h-7 rounded-md bg-blue-600 text-white hover:bg-blue-700 font-bold">+</button>
+                        </div>
+                      </td>
+                      <td className={cx(tdCls, 'text-right font-semibold text-slate-900 dark:text-white')}>{money(item.returnQty * Number(item.price || 0))}</td>
                     </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 dark:divide-slate-700/50">
-                    {returnItems.map((item, idx) => (
-                      <tr key={idx}>
-                        <td className="p-3 text-slate-800 dark:text-white font-bold text-sm">{item.title || 'Unknown Item'}</td>
-                        <td className="p-3 text-slate-500 dark:text-slate-400 font-bold text-center">{item.qty}</td>
-                        <td className="p-3 text-center">
-                          <div className="flex items-center justify-center gap-3">
-                            <button onClick={() => updateReturnQty(idx, -1)} className="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 font-black text-slate-600 dark:text-slate-300 transition-colors">-</button>
-                            <span className="font-black w-4 dark:text-white">{item.returnQty}</span>
-                            <button onClick={() => updateReturnQty(idx, 1)} className="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 font-black text-slate-600 dark:text-slate-300 transition-colors">+</button>
-                          </div>
-                        </td>
-                        <td className="p-3 font-bold text-slate-800 dark:text-white text-right">LKR {(item.returnQty * Number(item.price || 0)).toFixed(2)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-
-              <div className="p-5 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 transition-colors">
-                <div className="flex justify-between items-center mb-6">
-                  <span className="font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider text-sm">Total Refund Amount</span>
-                  <span className="font-black text-3xl text-red-600 dark:text-red-400">LKR {calculateTotalRefund().toFixed(2)}</span>
-                </div>
-                <div className="flex gap-3">
-                  <button onClick={() => setActiveReturn(null)} className="flex-1 bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold py-4 rounded-xl hover:bg-slate-300 dark:hover:bg-slate-700 transition-colors">Cancel</button>
-                  <button onClick={processReturn} className="flex-1 bg-red-600 text-white font-bold py-4 rounded-xl hover:bg-red-700 transition-colors flex items-center justify-center gap-2">
-                    <RotateCcw size={20}/> Confirm & Restock
-                  </button>
-                </div>
-              </div>
+                  ))}
+                </tbody>
+              </table>
             </div>
-          </div>
+          </Modal>
         )}
 
-        {/* --- MAIN PAGE CONTENT --- */}
-        <div className="flex justify-between items-end">
-          <div>
-            <h1 className="text-3xl font-black text-slate-800 dark:text-white flex items-center gap-3">
-              <Receipt className="text-blue-600 dark:text-blue-400" size={32}/> Checkout History
-            </h1>
-            <p className="text-slate-500 dark:text-slate-400 font-medium">Complete audit log of all transactions and returns.</p>
-          </div>
-          <div className="relative w-72">
-            <Search className="absolute left-3 top-3 text-slate-400" size={18} />
-            <input type="text" placeholder="Search Invoice No or Cashier..." value={search} onChange={(e) => setSearch(e.target.value)} className="w-full pl-10 p-2.5 border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-white rounded-xl focus:ring-2 focus:ring-blue-500 outline-none font-medium shadow-sm transition-colors" />
-          </div>
+        <div className="grid grid-cols-2 xl:grid-cols-4 gap-5">
+          <StatCard label="Total Invoices" sub="All time" value={sales.length.toLocaleString()} icon={Receipt} bars={false} />
+          <StatCard label="Today's Invoices" sub={money(todaySales.reduce((a, s) => a + Number(s.total_amount || 0), 0))} value={todaySales.length} icon={CalendarDays} tone="green" bars={false} />
+          <StatCard label="Net Revenue" sub="After returns" value={money(netRevenue)} icon={Wallet} tone="purple" bars={false} />
+          <StatCard label="Refunded" sub={`${sales.filter(s => Number(s.refunded_amount) > 0).length} invoices`} value={money(refundedTotal)} icon={RotateCcw} tone="red" bars={false} />
         </div>
 
-        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl overflow-y-auto shadow-sm flex-1 transition-colors">
+        <Card className="overflow-hidden">
+          <div className="flex flex-wrap items-center justify-between gap-3 p-5">
+            <Tabs active={payFilter} onChange={setPayFilter} tabs={[
+              { key: 'All', label: 'All', count: filteredSales.length },
+              { key: 'Cash', label: 'Cash', count: filteredSales.filter(s => payKind(s) === 'Cash').length },
+              { key: 'Card', label: 'Card', count: filteredSales.filter(s => payKind(s) === 'Card').length },
+              { key: 'Split', label: 'Split', count: filteredSales.filter(s => payKind(s) === 'Split').length },
+              { key: 'Returned', label: 'With Returns', count: filteredSales.filter(s => Number(s.refunded_amount) > 0).length },
+            ]} />
+            <SearchInput value={search} onChange={setSearch} placeholder="Search Invoice No or Cashier..." className="w-72" />
+          </div>
           <table className="w-full text-left">
-            <thead className="bg-slate-50 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 sticky top-0 z-10 transition-colors">
+            <thead>
               <tr>
-                <th className="p-4 font-bold text-slate-700 dark:text-slate-300">Date & Time</th>
-                <th className="p-4 font-bold text-slate-700 dark:text-slate-300">Invoice No</th>
-                <th className="p-4 font-bold text-slate-700 dark:text-slate-300">Cashier</th>
-                <th className="p-4 font-bold text-slate-700 dark:text-slate-300 text-center">Net Items Remaining</th>
-                <th className="p-4 font-bold text-slate-700 dark:text-slate-300 text-center">Payment</th>
-                <th className="p-4 font-bold text-slate-700 dark:text-slate-300 text-right">Net Total (LKR)</th>
-                <th className="p-4 font-bold text-slate-700 dark:text-slate-300 text-center">Actions</th>
+                <th className={thCls}>Date & Time</th>
+                <th className={thCls}>Invoice No</th>
+                <th className={thCls}>Cashier</th>
+                <th className={cx(thCls, 'text-center')}>Net Items</th>
+                <th className={thCls}>Payment</th>
+                <th className={cx(thCls, 'text-right')}>Net Total</th>
+                <th className={cx(thCls, 'text-center')}>Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100 dark:divide-slate-800/50">
+            <tbody>
               {isLoading ? (
-                <tr><td colSpan="7" className="p-10 text-center text-slate-500 font-bold animate-pulse">Loading database history...</td></tr>
-              ) : filteredSales.length === 0 ? (
-                <tr><td colSpan="7" className="p-10 text-center text-slate-500 font-bold">Your database is empty.</td></tr>
+                <EmptyRow colSpan={7}>Loading database history...</EmptyRow>
+              ) : visibleSales.length === 0 ? (
+                <EmptyRow colSpan={7}>No invoices found.</EmptyRow>
               ) : (
-                filteredSales.map(sale => {
+                visibleSales.map(sale => {
                   const refundedAmount = Number(sale.refunded_amount) || 0;
                   const remainingItems = (sale.items || []).reduce((acc, item) => acc + item.qty, 0);
                   const isFullyRefunded = remainingItems === 0;
-                  
+
                   // 🐛 FIXED: The backend already accurately calculates the Net Total into total_amount!
                   const netTotal = Number(sale.total_amount);
 
                   return (
-                    <tr key={sale.id} className={`transition-colors ${refundedAmount > 0 ? 'bg-red-50/40 dark:bg-red-900/10 hover:bg-red-50 dark:hover:bg-red-900/20' : 'hover:bg-slate-50 dark:hover:bg-slate-800/50'}`}>
-                      <td className="p-4 text-slate-600 dark:text-slate-300 text-sm font-medium">
-                        {new Date(sale.created_at).toLocaleDateString()} <br/>
-                        <span className="text-xs text-slate-400 dark:text-slate-500">{new Date(sale.created_at).toLocaleTimeString()}</span>
+                    <tr key={sale.id} className={trCls}>
+                      <td className={tdCls}>
+                        {new Date(sale.created_at).toLocaleDateString()}
+                        <span className="block text-xs text-slate-400 dark:text-slate-500">{new Date(sale.created_at).toLocaleTimeString()}</span>
                       </td>
-                      <td className="p-4 font-black text-slate-800 dark:text-white font-mono text-sm">{sale.invoice_number}</td>
-                      <td className="p-4 text-blue-600 dark:text-blue-400 font-bold">{sale.created_by}</td>
-                      <td className="p-4 text-center">
-                        <button onClick={() => setViewSale(sale)} className="font-bold text-slate-700 dark:text-slate-300 flex items-center justify-center gap-2 mx-auto hover:text-blue-600 transition-colors bg-slate-100 dark:bg-slate-800 px-3 py-1 rounded-lg shadow-sm border border-slate-200 dark:border-slate-700">
-                          {remainingItems} items <Eye size={14}/>
-                        </button>
+                      <td className={cx(tdCls, 'font-semibold text-slate-900 dark:text-white font-mono')}>{sale.invoice_number}</td>
+                      <td className={tdCls}><span className="flex items-center gap-2"><Avatar name={sale.created_by} size="w-7 h-7" />{sale.created_by}</span></td>
+                      <td className={cx(tdCls, 'text-center')}>
+                        <Button variant="secondary" size="sm" onClick={() => setViewSale(sale)}>{remainingItems} items <Eye size={13}/></Button>
                       </td>
-                      <td className="p-4 text-center">
-                        <span className="px-3 py-1 rounded-full text-xs font-bold bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300">{sale.payment_type}</span>
+                      <td className={tdCls}>
+                        <Badge tone={payKind(sale) === 'Cash' ? 'green' : payKind(sale) === 'Card' ? 'blue' : 'purple'} className="max-w-[180px] truncate" >{sale.payment_type}</Badge>
                       </td>
-                      <td className="p-4 font-black text-slate-800 dark:text-white text-right">
-                        {refundedAmount > 0 && (
-                          <div className="text-red-600 dark:text-red-400 flex items-center justify-end gap-1 text-xs mb-1 font-bold bg-red-100 dark:bg-red-900/30 px-2 py-1 rounded-md inline-flex float-right ml-auto">
-                            <AlertCircle size={14}/> Returned: -{refundedAmount.toFixed(2)}
-                          </div>
-                        )}
-                        <div className="clear-both pt-1">LKR {netTotal.toFixed(2)}</div>
+                      <td className={cx(tdCls, 'text-right')}>
+                        <p className="font-semibold text-slate-900 dark:text-white">{money(netTotal)}</p>
+                        {refundedAmount > 0 && <p className="text-[11px] text-red-500 dark:text-red-400 flex items-center justify-end gap-1"><AlertCircle size={11}/> Returned -{refundedAmount.toFixed(2)}</p>}
                       </td>
-                      <td className="p-4">
-                        <div className="flex justify-center gap-2">
-                          <button onClick={() => openReturnModal(sale)} title={isFullyRefunded ? "All Items Returned" : "Return Items"} disabled={isFullyRefunded} className={`${isFullyRefunded ? 'text-slate-400 dark:text-slate-500 bg-slate-100 dark:bg-slate-800 cursor-not-allowed opacity-50' : 'text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/30 hover:bg-red-100 dark:hover:bg-red-900/50'} font-bold p-2 rounded-lg transition-colors`}>
-                            <RotateCcw size={16} />
-                          </button>
-                          <button onClick={() => handleReprint(sale)} title="Reprint Receipt" className="text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30 hover:bg-blue-100 dark:hover:bg-blue-900/50 font-bold p-2 rounded-lg transition-colors">
-                            <Printer size={16} />
-                          </button>
-                        </div>
+                      <td className={cx(tdCls, 'text-center whitespace-nowrap')}>
+                        <IconButton tone="red" onClick={() => openReturnModal(sale)} title={isFullyRefunded ? "All Items Returned" : "Return Items"} disabled={isFullyRefunded}><RotateCcw size={16} /></IconButton>
+                        <IconButton tone="blue" onClick={() => handleReprint(sale)} title="Reprint Receipt"><Printer size={16} /></IconButton>
                       </td>
                     </tr>
                   );
@@ -312,8 +274,8 @@ export default function SalesHistory({ user }) {
               )}
             </tbody>
           </table>
-        </div>
-      </div>
+        </Card>
+      </Page>
       
       {/* --- SMART THERMAL RECEIPT REPRINT (Handles Returns Properly) --- */}
       {reprintSale && (

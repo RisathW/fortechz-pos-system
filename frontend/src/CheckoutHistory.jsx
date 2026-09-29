@@ -95,7 +95,7 @@ export default function CheckoutHistory() {
 
         <div className="flex justify-between items-end">
           <div>
-            <h1 className="text-3xl font-black text-slate-800 dark:text-white flex items-center gap-3">
+            <h1 className="text-2xl font-bold tracking-tight text-slate-800 dark:text-white flex items-center gap-3">
               <Receipt className="text-blue-600 dark:text-blue-400" size={32}/> Checkout History
             </h1>
             <p className="text-slate-500 dark:text-slate-400 font-medium">Complete audit log of all transactions and cashiers.</p>

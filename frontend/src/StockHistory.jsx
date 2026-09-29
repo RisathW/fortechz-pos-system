@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { ClipboardList, Search, ArrowDownToLine, ArrowUpFromLine } from 'lucide-react';
+import { ClipboardList, ArrowDownToLine, ArrowUpFromLine, Wallet } from 'lucide-react';
+import { Page, Card, StatCard, Badge, Tabs, SearchInput, EmptyRow, money, thCls, tdCls, trCls, cx } from './ui';
 
 export default function StockHistory() {
   const [history, setHistory] = useState([]);
   const [search, setSearch] = useState('');
+  const [typeFilter, setTypeFilter] = useState('All');
 
   useEffect(() => {
     fetch('http://localhost:5000/api/stock/history')
@@ -14,73 +16,78 @@ export default function StockHistory() {
       .catch(err => console.error("Failed to fetch stock history"));
   }, []);
 
-  const filteredHistory = history.filter(h => 
-    (h.title || '').toLowerCase().includes(search.toLowerCase()) || 
-    (h.supplier || '').toLowerCase().includes(search.toLowerCase()) ||
-    (h.notes || '').toLowerCase().includes(search.toLowerCase())
+  const filteredHistory = history.filter(h =>
+    (typeFilter === 'All' || h.type === typeFilter) && (
+      (h.title || '').toLowerCase().includes(search.toLowerCase()) ||
+      (h.supplier || '').toLowerCase().includes(search.toLowerCase()) ||
+      (h.notes || '').toLowerCase().includes(search.toLowerCase())
+    )
   );
 
+  const units = (type) => history.filter(h => h.type === type).reduce((a, h) => a + (Number(h.quantity) || 0), 0);
+  const grnValue = history.filter(h => h.type === 'GRN').reduce((a, h) => a + (Number(h.quantity) || 0) * (Number(h.buy_rate) || 0), 0);
+
   return (
-    <div className="p-8 h-full flex flex-col gap-6 overflow-hidden bg-slate-50 dark:bg-slate-950 transition-colors">
-      <div className="flex justify-between items-end">
-        <div>
-          <h1 className="text-3xl font-black text-slate-800 dark:text-white flex items-center gap-3">
-            <ClipboardList className="text-blue-600 dark:text-blue-400" size={32}/> Stock Audit History
-          </h1>
-          <p className="text-slate-500 dark:text-slate-400 font-medium">Log of all GRN (Stock In) and PRN (Stock Out) transactions.</p>
-        </div>
-        <div className="relative w-72">
-          <Search className="absolute left-3 top-3.5 text-slate-400" size={18} />
-          <input 
-            type="text" 
-            placeholder="Search item, supplier, or notes..." 
-            value={search} 
-            onChange={(e) => setSearch(e.target.value)} 
-            className="w-full pl-10 p-3 border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-white rounded-xl focus:ring-2 focus:ring-blue-500 outline-none font-medium shadow-sm transition-colors" 
-          />
-        </div>
+    <Page>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+        <StatCard label="Units Received (GRN)" sub={`${history.filter(h => h.type === 'GRN').length} entries`} value={units('GRN').toLocaleString()} icon={ArrowDownToLine} tone="green" bars={false} />
+        <StatCard label="Units Returned (PRN)" sub={`${history.filter(h => h.type === 'PRN').length} entries`} value={units('PRN').toLocaleString()} icon={ArrowUpFromLine} tone="red" bars={false} />
+        <StatCard label="Total Purchase Value" sub="GRN qty × buy rate" value={money(grnValue)} icon={Wallet} tone="purple" bars={false} />
       </div>
 
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl overflow-y-auto shadow-sm flex-1 transition-colors">
+      <Card className="overflow-hidden">
+        <div className="flex flex-wrap items-center justify-between gap-3 p-5">
+          <div className="flex items-center gap-3">
+            <span className="w-9 h-9 rounded-full bg-blue-600/10 text-blue-600 dark:text-blue-400 flex items-center justify-center"><ClipboardList size={17}/></span>
+            <div>
+              <h3 className="text-sm font-semibold text-slate-900 dark:text-white">Stock Audit History</h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400">Log of all GRN (Stock In) and PRN (Stock Out) transactions</p>
+            </div>
+          </div>
+          <div className="flex gap-3 items-center">
+            <Tabs active={typeFilter} onChange={setTypeFilter} tabs={[
+              { key: 'All', label: 'All', count: history.length },
+              { key: 'GRN', label: 'GRN (In)', count: history.filter(h => h.type === 'GRN').length },
+              { key: 'PRN', label: 'PRN (Out)', count: history.filter(h => h.type === 'PRN').length },
+            ]} />
+            <SearchInput value={search} onChange={setSearch} placeholder="Search item, supplier, or notes..." className="w-72" />
+          </div>
+        </div>
         <table className="w-full text-left">
-          <thead className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-700 sticky top-0 transition-colors">
+          <thead>
             <tr>
-              <th className="p-4 font-bold text-slate-700 dark:text-slate-300">Date & Time</th>
-              <th className="p-4 font-bold text-slate-700 dark:text-slate-300">Type</th>
-              <th className="p-4 font-bold text-slate-700 dark:text-slate-300">Supplier</th>
-              <th className="p-4 font-bold text-slate-700 dark:text-slate-300">Item Name</th>
-              <th className="p-4 font-bold text-slate-700 dark:text-slate-300 text-center">Qty</th>
-              <th className="p-4 font-bold text-slate-700 dark:text-slate-300 text-right">Buy Rate (LKR)</th>
+              <th className={thCls}>Date & Time</th>
+              <th className={thCls}>Type</th>
+              <th className={thCls}>Supplier</th>
+              <th className={thCls}>Item Name</th>
+              <th className={cx(thCls, 'text-center')}>Qty</th>
+              <th className={cx(thCls, 'text-right')}>Buy Rate (LKR)</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-100 dark:divide-slate-800/50">
+          <tbody>
             {filteredHistory.length === 0 ? (
-              <tr><td colSpan="6" className="p-8 text-center text-slate-500 dark:text-slate-400 font-medium">No stock transactions found.</td></tr>
+              <EmptyRow colSpan={6}>No stock transactions found.</EmptyRow>
             ) : (
               filteredHistory.map((log, idx) => (
-                <tr key={idx} className="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors">
-                  <td className="p-4 text-slate-600 dark:text-slate-300 text-sm font-medium">
-                    {new Date(log.created_at).toLocaleDateString()} <br/>
-                    <span className="text-xs text-slate-400 dark:text-slate-500">{new Date(log.created_at).toLocaleTimeString()}</span>
+                <tr key={idx} className={trCls}>
+                  <td className={tdCls}>
+                    {new Date(log.created_at).toLocaleDateString()}
+                    <span className="block text-xs text-slate-400 dark:text-slate-500">{new Date(log.created_at).toLocaleTimeString()}</span>
                   </td>
-                  <td className="p-4">
+                  <td className={tdCls}>
                     {log.type === 'GRN' ? (
-                      <span className="inline-flex items-center gap-1 px-3 py-1 bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 rounded-full text-xs font-bold transition-colors">
-                        <ArrowDownToLine size={12}/> GRN (In)
-                      </span>
+                      <Badge tone="green"><ArrowDownToLine size={12}/> GRN (In)</Badge>
                     ) : (
-                      <span className="inline-flex items-center gap-1 px-3 py-1 bg-rose-100 dark:bg-rose-900/30 text-rose-700 dark:text-rose-400 rounded-full text-xs font-bold transition-colors">
-                        <ArrowUpFromLine size={12}/> PRN (Out)
-                      </span>
+                      <Badge tone="red"><ArrowUpFromLine size={12}/> PRN (Out)</Badge>
                     )}
                   </td>
-                  <td className="p-4 font-bold text-slate-700 dark:text-slate-200">{log.supplier || 'N/A'}</td>
-                  <td className="p-4">
-                    <p className="font-black text-slate-800 dark:text-white">{log.title}</p>
-                    {log.notes && <p className="text-xs text-slate-400 dark:text-slate-500 mt-1 italic">Note: {log.notes}</p>}
+                  <td className={cx(tdCls, 'font-medium text-slate-900 dark:text-slate-200')}>{log.supplier || 'N/A'}</td>
+                  <td className={tdCls}>
+                    <p className="font-semibold text-slate-900 dark:text-white">{log.title}</p>
+                    {log.notes && <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5 italic">Note: {log.notes}</p>}
                   </td>
-                  <td className="p-4 text-center font-black text-slate-800 dark:text-white">{log.quantity}</td>
-                  <td className="p-4 text-right font-black text-slate-800 dark:text-white">
+                  <td className={cx(tdCls, 'text-center font-semibold text-slate-900 dark:text-white')}>{log.quantity}</td>
+                  <td className={cx(tdCls, 'text-right font-semibold text-slate-900 dark:text-white')}>
                     {Number(log.buy_rate).toFixed(2)}
                   </td>
                 </tr>
@@ -88,7 +95,7 @@ export default function StockHistory() {
             )}
           </tbody>
         </table>
-      </div>
-    </div>
+      </Card>
+    </Page>
   );
 }

@@ -1,16 +1,24 @@
 import React, { useState, useEffect } from 'react';
-import { Search, Trash2, Package, AlertTriangle, Printer } from 'lucide-react';
+import { Trash2, Package, AlertTriangle, Printer, Plus, Boxes, Wallet } from 'lucide-react';
+import useCategories from './useCategories';
+import { Page, Card, StatCard, Badge, Button, IconButton, SearchInput, Tabs, Modal, ConfirmModal, Toast, EmptyRow, money, inputCls, labelCls, thCls, tdCls, trCls, cx } from './ui';
 
 export default function GeneralInventory({ user }) {
-  const [items, setItems] = useState([]);
   const [search, setSearch] = useState('');
   const [formData, setFormData] = useState({ title: '', category: 'Stationery', cost_price: '', retail_price: '', available_qty: '' });
-  
+  const [categoryFilter, setCategoryFilter] = useState('All');
+  const [showAddModal, setShowAddModal] = useState(false);
+
   // Custom non-blocking alert & confirm states
   const [toast, setToast] = useState('');
   const [deleteConfirm, setDeleteConfirm] = useState(null);
 
-  const categories = ['Stationery', 'Exercise Books', 'Water Bottles', 'Trophies', 'Tennis Balls'];
+  // General items = every non-book category (managed in Inventory → Categories)
+  const { categories: allCategories } = useCategories();
+  const categories = allCategories.filter(c => c !== 'Reading Books' && c !== 'Other');
+  const [allBooks, setAllBooks] = useState([]);
+  const items = allBooks.filter(item => categories.includes(item.category));
+  const isManager = user?.role === 'Manager';
 
   const showToast = (msg) => {
     setToast(msg);
@@ -18,8 +26,8 @@ export default function GeneralInventory({ user }) {
   };
 
   const fetchItems = () => {
-    fetch('http://localhost:5000/api/books').then(res => res.json()).then(data => { 
-      if (Array.isArray(data)) setItems(data.filter(item => categories.includes(item.category)));
+    fetch('http://localhost:5000/api/books').then(res => res.json()).then(data => {
+      if (Array.isArray(data)) setAllBooks(data);
     });
   };
 
@@ -29,9 +37,10 @@ export default function GeneralInventory({ user }) {
     e.preventDefault();
     const submissionData = { ...formData, cost_price: parseFloat(formData.cost_price) || 0, author_name: 'N/A', isbn_barcode: `ITEM-${Date.now()}` };
     const res = await fetch('http://localhost:5000/api/books', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(submissionData) });
-    if (res.ok) { 
-      setFormData({ title: '', category: 'Stationery', cost_price: '', retail_price: '', available_qty: '' }); 
-      fetchItems(); 
+    if (res.ok) {
+      setFormData({ title: '', category: 'Stationery', cost_price: '', retail_price: '', available_qty: '' });
+      fetchItems();
+      setShowAddModal(false);
       showToast("Item added successfully!");
     } else {
       showToast("Error adding item.");
@@ -64,136 +73,125 @@ export default function GeneralInventory({ user }) {
     setTimeout(() => printWindow.print(), 500);
   };
 
-  const filteredItems = items.filter(item => search === '' || (item.title || '').toLowerCase().includes(search.toLowerCase()));
+  const filteredItems = items.filter(item =>
+    (search === '' || (item.title || '').toLowerCase().includes(search.toLowerCase())) &&
+    (categoryFilter === 'All' || item.category === categoryFilter)
+  );
   const lowStockItems = items.filter(i => i.available_qty <= 5);
+  const stockValue = items.reduce((a, i) => a + (Number(i.retail_price) || 0) * (Number(i.available_qty) || 0), 0);
 
   return (
-    <div className="p-8 h-full flex flex-col gap-6 overflow-hidden bg-slate-50 dark:bg-slate-950 relative transition-colors">
-      
-      {/* FLOATING TOAST NOTIFICATION */}
-      {toast && (
-        <div className="fixed top-6 right-6 bg-slate-800 text-white px-6 py-3 rounded-lg shadow-2xl z-50 font-bold border-l-4 border-blue-500 animate-pulse">
-          {toast}
-        </div>
+    <Page>
+      <Toast message={toast} />
+
+      {deleteConfirm && (
+        <ConfirmModal title="Confirm Deletion" icon={Trash2} confirmLabel="Delete"
+          message="Are you sure you want to delete this item? This action cannot be undone."
+          onConfirm={executeDelete} onCancel={() => setDeleteConfirm(null)} />
       )}
 
-      {/* CUSTOM CONFIRM MODAL */}
-      {deleteConfirm && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50">
-          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-96 p-6 border border-transparent dark:border-slate-700">
-            <h3 className="font-black text-xl mb-4 dark:text-white">Confirm Deletion</h3>
-            <p className="text-slate-600 dark:text-slate-300 mb-6">Are you sure you want to delete this item? This action cannot be undone.</p>
-            <div className="flex gap-2">
-              <button onClick={() => setDeleteConfirm(null)} className="w-1/2 bg-slate-200 dark:bg-slate-800 dark:text-white font-bold py-3 rounded-xl transition-colors">Cancel</button>
-              <button onClick={executeDelete} className="w-1/2 bg-red-600 text-white font-bold py-3 rounded-xl hover:bg-red-700 transition-colors">Delete</button>
+      {showAddModal && (
+        <Modal title="Add General Item" icon={Plus} width="max-w-lg" onClose={() => setShowAddModal(false)}>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div>
+              <label className={labelCls}>Item Name *</label>
+              <input required autoFocus value={formData.title} onChange={e => setFormData({...formData, title: e.target.value})} className={inputCls} />
             </div>
-          </div>
-        </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className={labelCls}>Category</label>
+                <select value={formData.category} onChange={e => setFormData({...formData, category: e.target.value})} className={inputCls}>
+                  {categories.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className={labelCls}>Opening Qty *</label>
+                <input type="number" required value={formData.available_qty} onChange={e => setFormData({...formData, available_qty: e.target.value})} className={inputCls} />
+              </div>
+              <div>
+                <label className={labelCls}>Buy Rate (LKR)</label>
+                <input type="number" step="0.01" value={formData.cost_price} onChange={e => setFormData({...formData, cost_price: e.target.value})} className={inputCls} />
+              </div>
+              <div>
+                <label className={labelCls}>Retail Price (LKR) *</label>
+                <input type="number" step="0.01" required value={formData.retail_price} onChange={e => setFormData({...formData, retail_price: e.target.value})} className={inputCls} />
+              </div>
+            </div>
+            <div className="flex gap-2 pt-2">
+              <Button type="button" variant="secondary" className="flex-1" onClick={() => setShowAddModal(false)}>Cancel</Button>
+              <Button type="submit" className="flex-1">Add Item</Button>
+            </div>
+          </form>
+        </Modal>
       )}
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+        <StatCard label="General Items" sub="Stationery & store products" value={items.length} icon={Package} bars={false} />
+        <StatCard label="Units in Stock" sub="Across all categories" value={items.reduce((a, i) => a + (Number(i.available_qty) || 0), 0).toLocaleString()} icon={Boxes} tone="green" bars={false} />
+        <StatCard label={isManager ? 'Retail Stock Value' : 'Low Stock Items'} sub={isManager ? 'Qty × retail price' : '5 or less remaining'} value={isManager ? money(stockValue) : lowStockItems.length} icon={isManager ? Wallet : AlertTriangle} tone={isManager ? 'purple' : 'amber'} bars={false} />
+      </div>
 
       {/* LOW STOCK ALERT BANNER */}
-      {user?.role === 'Manager' && lowStockItems.length > 0 && (
-        <div className="bg-red-50 dark:bg-red-900/20 border-l-4 border-red-500 dark:border-red-500/70 p-4 rounded-r-xl flex items-start gap-3 shadow-sm transition-colors">
-          <AlertTriangle className="text-red-500 dark:text-red-400" size={24}/>
+      {isManager && lowStockItems.length > 0 && (
+        <div className="bg-amber-500/10 border border-amber-500/30 p-4 rounded-2xl flex items-start gap-3">
+          <span className="w-9 h-9 rounded-full bg-amber-500/15 text-amber-500 flex items-center justify-center shrink-0"><AlertTriangle size={17}/></span>
           <div>
-            <h3 className="text-red-800 dark:text-red-400 font-bold">Low Stock Warning ({lowStockItems.length} items)</h3>
-            <p className="text-red-600 dark:text-red-300 text-sm font-medium">The following items have 5 or less in stock: {lowStockItems.slice(0,5).map(i=>i.title).join(', ')}{lowStockItems.length > 5 ? '...' : ''}</p>
+            <h3 className="text-sm font-semibold text-amber-700 dark:text-amber-400">Low Stock Warning ({lowStockItems.length} items)</h3>
+            <p className="text-xs text-amber-700/80 dark:text-amber-300/80 mt-0.5">5 or less in stock: {lowStockItems.slice(0,5).map(i=>i.title).join(', ')}{lowStockItems.length > 5 ? '...' : ''}</p>
           </div>
         </div>
       )}
 
-      <div className="flex justify-between items-end">
-        <div>
-          <h1 className="text-3xl font-black text-slate-800 dark:text-white flex items-center gap-3"><Package className="text-blue-600 dark:text-blue-400" size={32}/> General Store Inventory</h1>
+      <Card className="overflow-hidden">
+        <div className="flex flex-wrap items-center justify-between gap-3 p-5">
+          <Tabs active={categoryFilter} onChange={setCategoryFilter}
+            tabs={[{ key: 'All', label: 'All', count: items.length }, ...categories.map(c => ({ key: c, label: c, count: items.filter(i => i.category === c).length }))]} />
+          <div className="flex gap-2">
+            <SearchInput value={search} onChange={setSearch} placeholder="Search general items..." className="w-64" />
+            {isManager && <Button onClick={() => setShowAddModal(true)}><Plus size={16}/> Add Item</Button>}
+          </div>
         </div>
-        <div className="relative w-72">
-          <Search className="absolute left-3 top-3 text-slate-400" size={18} />
-          <input 
-            type="text" 
-            placeholder="Search general items..." 
-            value={search} 
-            onChange={(e) => setSearch(e.target.value)} 
-            className="w-full pl-10 p-2.5 border border-slate-200 dark:border-slate-700 dark:bg-slate-800 dark:text-white rounded-xl focus:ring-2 focus:ring-blue-500 outline-none font-medium shadow-sm transition-colors" 
-          />
-        </div>
-      </div>
-      
-      {/* ADD ITEM FORM (MANAGER) */}
-      {user?.role === 'Manager' && (
-        <form onSubmit={handleSubmit} className="bg-white dark:bg-slate-900 p-6 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm grid grid-cols-6 gap-4 items-end transition-colors">
-          <div className="col-span-2">
-            <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1">Item Name *</label>
-            <input required value={formData.title} onChange={e => setFormData({...formData, title: e.target.value})} className="w-full border dark:border-slate-700 dark:bg-slate-800 dark:text-white rounded-lg p-3 font-bold outline-none focus:ring-2 focus:ring-blue-500" />
-          </div>
-          <div className="col-span-1">
-            <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1">Category</label>
-            <select value={formData.category} onChange={e => setFormData({...formData, category: e.target.value})} className="w-full border dark:border-slate-700 dark:bg-slate-800 dark:text-white rounded-lg p-3 font-medium outline-none focus:ring-2 focus:ring-blue-500">
-              {categories.map(c => <option key={c} value={c}>{c}</option>)}
-            </select>
-          </div>
-          <div className="col-span-1">
-            <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1">Buy Rate</label>
-            <input type="number" step="0.01" value={formData.cost_price} onChange={e => setFormData({...formData, cost_price: e.target.value})} className="w-full border dark:border-slate-700 rounded-lg p-3 font-bold text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 outline-none focus:ring-2 focus:ring-blue-500" />
-          </div>
-          <div className="col-span-1">
-            <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1">Retail Price *</label>
-            <input type="number" step="0.01" required value={formData.retail_price} onChange={e => setFormData({...formData, retail_price: e.target.value})} className="w-full border dark:border-slate-700 rounded-lg p-3 font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/20 outline-none focus:ring-2 focus:ring-blue-500" />
-          </div>
-          <div className="col-span-1 flex gap-2">
-            <div className="w-1/3">
-              <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1">Qty</label>
-              <input type="number" required value={formData.available_qty} onChange={e => setFormData({...formData, available_qty: e.target.value})} className="w-full border dark:border-slate-700 dark:bg-slate-800 dark:text-white rounded-lg p-3 font-bold px-2 text-center outline-none focus:ring-2 focus:ring-blue-500" />
-            </div>
-            <div className="w-2/3">
-              <button type="submit" className="w-full h-[50px] bg-blue-600 text-white font-black rounded-lg hover:bg-blue-700 transition-colors">Add</button>
-            </div>
-          </div>
-        </form>
-      )}
-
-      {/* ITEMS TABLE */}
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl overflow-y-auto shadow-sm flex-1 transition-colors">
         <table className="w-full text-left">
-          <thead className="bg-slate-50 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 sticky top-0 text-slate-700 dark:text-slate-300">
+          <thead>
             <tr>
-              <th className="p-4 font-bold">Item Name</th>
-              <th className="p-4 font-bold text-center">Stock</th>
-              {/* ✅ Manager Only: Cost Price Column */}
-              {user?.role === 'Manager' && <th className="p-4 font-bold text-right">Cost Price</th>}
-              <th className="p-4 font-bold text-right">Retail Price</th>
-              {user?.role === 'Manager' && <th className="p-4 font-bold text-center">Actions</th>}
+              <th className={thCls}>Item Name</th>
+              <th className={thCls}>Category</th>
+              <th className={cx(thCls, 'text-center')}>Stock</th>
+              {isManager && <th className={cx(thCls, 'text-right')}>Cost Price</th>}
+              <th className={cx(thCls, 'text-right')}>Retail Price</th>
+              {isManager && <th className={cx(thCls, 'text-center')}>Actions</th>}
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+          <tbody>
+            {filteredItems.length === 0 && <EmptyRow colSpan={6}>No general items found.</EmptyRow>}
             {filteredItems.map(item => (
-              <tr key={item.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
-                <td className="p-4">
-                  <p className="font-black text-slate-800 dark:text-white">{item.title}</p>
-                  <p className="text-xs text-slate-400 dark:text-slate-500 font-mono">{item.isbn_barcode}</p>
+              <tr key={item.id} className={trCls}>
+                <td className={tdCls}>
+                  <div className="flex items-center gap-3">
+                    <span className="w-9 h-9 rounded-lg bg-blue-600/10 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0"><Package size={16}/></span>
+                    <div>
+                      <p className="font-semibold text-slate-900 dark:text-white">{item.title}</p>
+                      <p className="text-xs text-slate-400 dark:text-slate-500 font-mono">{item.isbn_barcode}</p>
+                    </div>
+                  </div>
                 </td>
-                <td className="p-4 text-center">
-                  <span className={`px-3 py-1 rounded-full text-xs font-bold ${item.available_qty <= 5 ? 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400' : 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400'}`}>
-                    {item.available_qty}
-                  </span>
+                <td className={tdCls}>{item.category}</td>
+                <td className={cx(tdCls, 'text-center')}>
+                  <Badge tone={item.available_qty <= 5 ? 'red' : 'green'}>{item.available_qty}</Badge>
                 </td>
-                
-                {/* ✅ Manager Only: Cost Price Value */}
-                {user?.role === 'Manager' && (
-                  <td className="p-4 font-bold text-red-500 dark:text-red-400 text-right">LKR {Number(item.cost_price).toFixed(2)}</td>
-                )}
-                
-                <td className="p-4 font-black text-slate-800 dark:text-white text-right">LKR {Number(item.retail_price).toFixed(2)}</td>
-                {user?.role === 'Manager' && (
-                  <td className="p-4 text-center space-x-2">
-                    <button onClick={() => printBarcode(item)} title="Print Label" className="p-2 text-slate-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-lg transition-colors"><Printer size={18} /></button>
-                    <button onClick={() => setDeleteConfirm(item.id)} title="Delete" className="p-2 text-red-500 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors"><Trash2 size={18} /></button>
+                {isManager && <td className={cx(tdCls, 'text-right text-slate-500')}>{money(item.cost_price)}</td>}
+                <td className={cx(tdCls, 'text-right font-semibold text-slate-900 dark:text-white')}>{money(item.retail_price)}</td>
+                {isManager && (
+                  <td className={cx(tdCls, 'text-center whitespace-nowrap')}>
+                    <IconButton tone="blue" onClick={() => printBarcode(item)} title="Print Label"><Printer size={16} /></IconButton>
+                    <IconButton tone="red" onClick={() => setDeleteConfirm(item.id)} title="Delete"><Trash2 size={16} /></IconButton>
                   </td>
                 )}
               </tr>
             ))}
           </tbody>
         </table>
-      </div>
-    </div>
+      </Card>
+    </Page>
   );
 }
